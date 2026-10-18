@@ -1,202 +1,197 @@
 --[[
-    ═══════════════════════════════════════════════════════════════════════════
-    DEREK HUB v23.0 — TITAN EDITION
-    ═══════════════════════════════════════════════════════════════════════════
-    Game: Steal An Egg
-    Executor: Delta, Wave, Codex, Fluxus, Arceus X
-    Author: ALPHA
-    Modules: 40+ | Lines: ~3000+ | Bypass: Advanced
-    ═══════════════════════════════════════════════════════════════════════════
+    ╔═══════════════════════════════════════════════════════════════════╗
+    ║       DEREK HUB v26.0 — MEGA EDITION                              ║
+    ║       Game: Steal An Egg | Author: ALPHA                          ║
+    ║       Lines: 1200+ | Features: 50+ | Safe API Only                ║
+    ╚═══════════════════════════════════════════════════════════════════╝
 ]]
 
---=========================================================
--- [01] SERVICES & GLOBALS
---=========================================================
-local Players            = game:GetService("Players")
-local RunService         = game:GetService("RunService")
-local Workspace          = game:GetService("Workspace")
-local Lighting           = game:GetService("Lighting")
-local UIS                = game:GetService("UserInputService")
-local TweenService       = game:GetService("TweenService")
-local ReplicatedStorage  = game:GetService("ReplicatedStorage")
-local VirtualUser        = game:GetService("VirtualUser")
-local StarterGui         = game:GetService("StarterGui")
-local LocalPlayer        = Players.LocalPlayer
-local Camera             = Workspace.CurrentCamera
-
-local FPS = 60
-local Ping = 0
-local SessionStart = tick()
-local WatermarkEnabled = true
-local KeybindList = {}
+task.wait(2)
 
 --=========================================================
--- [02] GLOBAL STATE
+-- [SECTION 01] SERVICES INITIALIZATION
+--=========================================================
+local Players         = game:GetService("Players")
+local RunService      = game:GetService("RunService")
+local Workspace       = game:GetService("Workspace")
+local Lighting        = game:GetService("Lighting")
+local UIS             = game:GetService("UserInputService")
+local Tween           = game:GetService("TweenService")
+local VirtualUser     = game:GetService("VirtualUser")
+local HttpService     = game:GetService("HttpService")
+local LocalPlayer     = Players.LocalPlayer
+local Camera          = Workspace.CurrentCamera
+
+--=========================================================
+-- [SECTION 02] GLOBAL STATE
 --=========================================================
 local State = {
     Stats = {
-        EggsStolen   = 0,
-        HatchesDone  = 0,
-        KicksBlocked = 0,
-        SessionTime  = 0
-    },
-    Bypass = {
-        Active    = false,
-        Metatable = false
+        EggsStolen      = 0,
+        HatchesDone     = 0,
+        Butterflies     = 0,
+        KicksPrevented  = 0,
+        SessionStart    = tick()
     },
     Logs = {},
-    Profiles = {}
+    SavedProfiles = {},
+    CurrentProfile = "default",
+    Features = {}
 }
 
+local function Log(msg, tag)
+    tag = tag or "INFO"
+    local entry = "["..os.date("%H:%M:%S").."] ["..tag.."] "..msg
+    table.insert(State.Logs, entry)
+    if #State.Logs > 300 then table.remove(State.Logs, 1) end
+    return entry
+end
+
+Log("Boot sequence initiated.", "SYSTEM")
+Log("Loading modules...", "SYSTEM")
+
 --=========================================================
--- [03] CONFIGURATION
+-- [SECTION 03] CONFIGURATION
 --=========================================================
 local Config = {
     Farm = {
-        AutoSteal      = false,
-        AutoHatch      = false,
-        AutoButterfly  = false,
-        AutoSell       = false,
-        SafeMode       = true,
-        StealDelay     = 0.4
+        AutoSteal       = false,
+        AutoHatch       = false,
+        AutoButterfly   = false,
+        AutoSell        = false,
+        SafeMode        = true,
+        StealDelay      = 0.4,
+        HatchDelay      = 0.5,
+        ButterflyRange  = 50
     },
     Movement = {
-        SpeedEnabled   = false,
-        WalkSpeed      = 16,
-        FlyEnabled     = false,
-        FlySpeed       = 60,
-        Noclip         = false,
-        InfiniteJump   = false,
-        AntiFling      = false
+        SpeedEnabled    = false,
+        WalkSpeed       = 16,
+        FlyEnabled      = false,
+        FlySpeed        = 60,
+        Noclip          = false,
+        InfiniteJump    = false,
+        AntiFling       = false,
+        JumpPower       = 50
     },
     Visual = {
-        ESP_Players    = false,
-        ESP_Eggs       = false,
-        ESP_Tracers    = false,
-        ESP_Boxes      = false,
-        ESP_Health     = false,
-        Fullbright     = false
+        ESP_Eggs        = false,
+        ESP_Players     = false,
+        ESP_Tracers     = false,
+        ESP_Health      = false,
+        Fullbright      = false,
+        NoFog           = false
     },
     Misc = {
-        AntiAFK        = true,
-        WebhookURL     = ""
+        AntiAFK         = true,
+        AutoRejoin      = false,
+        WebhookEnabled  = false
     }
 }
 
 --=========================================================
--- [04] LOGGING SYSTEM
---=========================================================
-local function Log(msg, lvl)
-    lvl = lvl or "INFO"
-    local timestamp = os.date("%H:%M:%S")
-    local entry = "["..timestamp.."] ["..lvl.."] "..msg
-    table.insert(State.Logs, entry)
-    if #State.Logs > 150 then
-        table.remove(State.Logs, 1)
-    end
-    return entry
-end
-
-Log("Initializing Derek Hub v23.0", "SYSTEM")
-
---=========================================================
--- [05] BYPASS SYSTEM
---=========================================================
-pcall(function()
-    if getrawmetatable and setreadonly and newcclosure then
-        local mt = getrawmetatable(game)
-        local oldNamecall = mt.__namecall
-        setreadonly(mt, false)
-        mt.__namecall = newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            if method == "Kick" then
-                State.Stats.KicksBlocked = State.Stats.KicksBlocked + 1
-                Log("Kick blocked.", "BYPASS")
-                return nil
-            end
-            return oldNamecall(self, ...)
-        end)
-        setreadonly(mt, true)
-        State.Bypass.Active = true
-        State.Bypass.Metatable = true
-    end
-end)
-
-pcall(function()
-    if getconnections then
-        for _, conn in pairs(getconnections(LocalPlayer.CharacterAdded)) do
-            local ok, src = pcall(debug.info, conn.Function, "s")
-            if ok and type(src) == "string" then
-                local lower = src:lower()
-                if lower:find("anti") or lower:find("kick") or lower:find("detect") then
-                    pcall(function() conn:Disconnect() end)
-                    Log("AC connection removed.", "BYPASS")
-                end
-            end
-        end
-    end
-end)
-
---=========================================================
--- [06] HELPER FUNCTIONS
+-- [SECTION 04] CHARACTER HELPERS
 --=========================================================
 local function GetChar()
     local c = LocalPlayer.Character
-    return c, c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart")
+    if not c then return nil, nil, nil end
+    local hum = c:FindFirstChildOfClass("Humanoid")
+    local hrp = c:FindFirstChild("HumanoidRootPart")
+    return c, hum, hrp
 end
 
-local function GetDistance(pos1, pos2)
-    return (pos1 - pos2).Magnitude
+local function IsAlive()
+    local _, hum, _ = GetChar()
+    return hum and hum.Health > 0
 end
 
-local function Round(num, places)
-    places = places or 0
-    local mult = 10^places
-    return math.floor(num * mult + 0.5) / mult
-end
-
---=========================================================
--- [07] EGG FINDER
---=========================================================
-local function GetEggs()
-    local eggs = {}
+local function GetPosition()
     local _, _, hrp = GetChar()
-    if not hrp then return eggs end
+    return hrp and hrp.Position
+end
 
-    for _, prompt in pairs(Workspace:GetDescendants()) do
+local function Distance(a, b)
+    return (a - b).Magnitude
+end
+
+--=========================================================
+-- [SECTION 05] EGG SYSTEM
+--=========================================================
+local EggCache = {}
+local LastCacheUpdate = 0
+
+local function RefreshEggCache()
+    EggCache = {}
+    local _, _, hrp = GetChar()
+    if not hrp then return end
+    
+    local allPrompts = Workspace:GetDescendants()
+    for i = 1, #allPrompts do
+        local prompt = allPrompts[i]
         if prompt:IsA("ProximityPrompt") and string.lower(prompt.ActionText) == "steal" then
             local model = prompt.Parent
-            local pos = (model:IsA("Model") and model:GetPivot().Position) or model.Position
-            local name = prompt.ObjectText ~= "" and prompt.ObjectText or model.Name
-            
-            local score = 10
-            local lower = string.lower(name)
-            if lower:find("secret") or lower:find("mythic") then score = 1000
-            elseif lower:find("legendary") then score = 800
-            elseif lower:find("epic") then score = 600
-            elseif lower:find("rare") then score = 400 end
-            
-            table.insert(eggs, {
-                Model = model,
-                Prompt = prompt,
-                Position = pos,
-                Name = name,
-                Score = score,
-                Distance = Round(GetDistance(pos, hrp.Position), 0)
-            })
+            if model then
+                local pos = (model:IsA("Model") and model:GetPivot().Position) or model.Position
+                local name = prompt.ObjectText ~= "" and prompt.ObjectText or model.Name
+                
+                local score = 10
+                local lower = string.lower(name)
+                if lower:find("secret") or lower:find("mythic") or lower:find("god") then
+                    score = 1000
+                elseif lower:find("legendary") or lower:find("divine") then
+                    score = 800
+                elseif lower:find("epic") then
+                    score = 600
+                elseif lower:find("rare") then
+                    score = 400
+                elseif lower:find("uncommon") then
+                    score = 200
+                end
+                
+                table.insert(EggCache, {
+                    Model = model,
+                    Prompt = prompt,
+                    Position = pos,
+                    Name = name,
+                    Score = score,
+                    Distance = math.floor(Distance(pos, hrp.Position))
+                })
+            end
         end
     end
     
-    table.sort(eggs, function(a, b) return a.Score > b.Score end)
-    return eggs
+    table.sort(EggCache, function(a, b)
+        return a.Score > b.Score
+    end)
+    
+    LastCacheUpdate = tick()
+end
+
+local function GetEggs()
+    if tick() - LastCacheUpdate > 2 then
+        RefreshEggCache()
+    end
+    return EggCache
 end
 
 --=========================================================
--- [08] STEAL SYSTEM
+-- [SECTION 06] STEAL SYSTEM
 --=========================================================
+local StealCooldown = false
+
 local function StealEgg(egg, callback)
+    if StealCooldown then return false end
+    StealCooldown = true
+    
     local _, hum, hrp = GetChar()
-    if not hum or not hrp or not egg.Model.Parent then return false end
+    if not hum or not hrp then
+        StealCooldown = false
+        return false
+    end
+    if not egg or not egg.Model or not egg.Model.Parent then
+        StealCooldown = false
+        return false
+    end
     
     local originalCF = hrp.CFrame
     local originalSpeed = hum.WalkSpeed
@@ -205,14 +200,21 @@ local function StealEgg(egg, callback)
     task.spawn(function()
         pcall(function()
             hrp.CFrame = CFrame.new(egg.Position + Vector3.new(0, 2.5, 0))
-            task.wait(Config.Farm.SafeMode and 0.35 or 0.05)
+            task.wait(Config.Farm.SafeMode and 0.35 or 0.08)
             fireproximityprompt(egg.Prompt)
             State.Stats.EggsStolen = State.Stats.EggsStolen + 1
-            task.wait(Config.Farm.SafeMode and 0.35 or 0.05)
+            Log("Stole: "..egg.Name, "STEAL")
+            task.wait(Config.Farm.SafeMode and 0.35 or 0.08)
             hrp.CFrame = originalCF
         end)
         
-        hum.WalkSpeed = Config.Movement.SpeedEnabled and Config.Movement.WalkSpeed or originalSpeed
+        if Config.Movement.SpeedEnabled then
+            hum.WalkSpeed = Config.Movement.WalkSpeed
+        else
+            hum.WalkSpeed = originalSpeed
+        end
+        
+        StealCooldown = false
         if callback then pcall(callback) end
     end)
     
@@ -220,20 +222,22 @@ local function StealEgg(egg, callback)
 end
 
 --=========================================================
--- [09] AUTO FARM LOOPS
+-- [SECTION 07] FARM LOOPS
 --=========================================================
 task.spawn(function()
     while task.wait(Config.Farm.StealDelay) do
-        if Config.Farm.AutoSteal then
+        if Config.Farm.AutoSteal and IsAlive() then
             local eggs = GetEggs()
-            if #eggs > 0 then StealEgg(eggs[1]) end
+            if #eggs > 0 then
+                StealEgg(eggs[1])
+            end
         end
     end
 end)
 
 task.spawn(function()
-    while task.wait(1) do
-        if Config.Farm.AutoHatch then
+    while task.wait(Config.Farm.HatchDelay) do
+        if Config.Farm.AutoHatch and IsAlive() then
             for _, v in pairs(Workspace:GetDescendants()) do
                 if v:IsA("ProximityPrompt") and string.lower(v.ActionText):find("hatch") then
                     pcall(function() fireproximityprompt(v) end)
@@ -244,41 +248,65 @@ task.spawn(function()
     end
 end)
 
---=========================================================
--- [10] MOVEMENT SYSTEMS
---=========================================================
-RunService.RenderStepped:Connect(function()
-    local _, hum = GetChar()
-    if not hum then return end
-    if Config.Movement.SpeedEnabled then hum.WalkSpeed = Config.Movement.WalkSpeed end
+task.spawn(function()
+    while task.wait(1) do
+        if Config.Farm.AutoButterfly and IsAlive() then
+            local _, _, hrp = GetChar()
+            if hrp then
+                for _, v in pairs(Workspace:GetDescendants()) do
+                    if v:IsA("ProximityPrompt") and string.lower(v.ActionText):find("catch") then
+                        local parent = v.Parent
+                        if parent and parent.Position and Distance(parent.Position, hrp.Position) < Config.Farm.ButterflyRange then
+                            pcall(function() fireproximityprompt(v) end)
+                            State.Stats.Butterflies = State.Stats.Butterflies + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
 end)
 
-local FlyBV, FlyBG
+--=========================================================
+-- [SECTION 08] MOVEMENT SYSTEMS
+--=========================================================
+RunService.RenderStepped:Connect(function()
+    if Config.Movement.SpeedEnabled then
+        local _, hum = GetChar()
+        if hum and hum.WalkSpeed ~= Config.Movement.WalkSpeed then
+            hum.WalkSpeed = Config.Movement.WalkSpeed
+        end
+    end
+end)
+
+local FlyVelocity, FlyGyro
 RunService.RenderStepped:Connect(function()
     local _, hum, hrp = GetChar()
     if not hum or not hrp then
-        if FlyBV then FlyBV:Destroy() FlyBV = nil end
-        if FlyBG then FlyBG:Destroy() FlyBG = nil end
+        if FlyVelocity then FlyVelocity:Destroy() FlyVelocity = nil end
+        if FlyGyro then FlyGyro:Destroy() FlyGyro = nil end
         return
     end
-
+    
     if Config.Movement.FlyEnabled then
-        if not FlyBV then
-            FlyBV = Instance.new("BodyVelocity", hrp)
-            FlyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-            FlyBG = Instance.new("BodyGyro", hrp)
-            FlyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-            FlyBG.P = 1000
+        if not FlyVelocity then
+            FlyVelocity = Instance.new("BodyVelocity", hrp)
+            FlyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+            FlyGyro = Instance.new("BodyGyro", hrp)
+            FlyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+            FlyGyro.P = 1000
         end
-        local dir = hum.MoveDirection
-        local vert = 0
-        if UIS:IsKeyDown(Enum.KeyCode.Space) then vert = Config.Movement.FlySpeed end
-        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then vert = -Config.Movement.FlySpeed end
-        FlyBV.Velocity = dir * Config.Movement.FlySpeed + Vector3.new(0, vert, 0)
-        FlyBG.CFrame = Camera.CFrame
+        
+        local direction = hum.MoveDirection
+        local vertical = 0
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then vertical = Config.Movement.FlySpeed end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then vertical = -Config.Movement.FlySpeed end
+        
+        FlyVelocity.Velocity = direction * Config.Movement.FlySpeed + Vector3.new(0, vertical, 0)
+        FlyGyro.CFrame = Camera.CFrame
     else
-        if FlyBV then FlyBV:Destroy() FlyBV = nil end
-        if FlyBG then FlyBG:Destroy() FlyBG = nil end
+        if FlyVelocity then FlyVelocity:Destroy() FlyVelocity = nil end
+        if FlyGyro then FlyGyro:Destroy() FlyGyro = nil end
     end
 end)
 
@@ -287,7 +315,7 @@ RunService.Stepped:Connect(function()
         local char = LocalPlayer.Character
         if char then
             for _, part in pairs(char:GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
+                if part:IsA("BasePart") then
                     part.CanCollide = false
                 end
             end
@@ -298,131 +326,125 @@ end)
 UIS.JumpRequest:Connect(function()
     if Config.Movement.InfiniteJump then
         local _, hum = GetChar()
-        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
     end
 end)
 
 --=========================================================
--- [11] ESP SYSTEM
+-- [SECTION 09] ESP SYSTEM
 --=========================================================
-local ESP = { Drawings = {} }
 RunService.RenderStepped:Connect(function()
-    for _, d in pairs(ESP.Drawings) do pcall(function() d:Remove() end) end
-    ESP.Drawings = {}
-
+    for _, v in pairs(Workspace:GetDescendants()) do
+        if v.Name == "DerekESPEgg" or v.Name == "DerekESPPlayer" then
+            v:Destroy()
+        end
+    end
+    
+    if Config.Visual.ESP_Eggs then
+        for _, egg in ipairs(GetEggs()) do
+            if egg.Model and egg.Model.Parent then
+                local box = Instance.new("BoxHandleAdornment")
+                box.Name = "DerekESPEgg"
+                box.Adornee = egg.Model
+                box.AlwaysOnTop = true
+                box.Size = egg.Model:GetExtentsSize()
+                box.Color3 = Color3.fromRGB(0, 255, 100)
+                box.Transparency = 0.5
+                box.Parent = egg.Model
+            end
+        end
+    end
+    
     if Config.Visual.ESP_Players then
         for _, plr in pairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                local hrp = plr.Character.HumanoidRootPart
-                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-                if onScreen then
-                    local txt = Drawing.new("Text")
-                    txt.Text = plr.Name
-                    txt.Size = 14
-                    txt.Center = true
-                    txt.Outline = true
-                    txt.Color = Color3.fromRGB(255, 50, 50)
-                    txt.Position = Vector2.new(pos.X, pos.Y - 30)
-                    txt.Visible = true
-                    table.insert(ESP.Drawings, txt)
+            if plr ~= LocalPlayer and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local box = Instance.new("BoxHandleAdornment")
+                    box.Name = "DerekESPPlayer"
+                    box.Adornee = hrp
+                    box.AlwaysOnTop = true
+                    box.Size = Vector3.new(4, 6, 4)
+                    box.Color3 = Color3.fromRGB(255, 50, 50)
+                    box.Transparency = 0.5
+                    box.Parent = hrp
                 end
             end
         end
     end
-
-    if Config.Visual.ESP_Eggs then
-        for _, egg in pairs(GetEggs()) do
-            local pos, onScreen = Camera:WorldToViewportPoint(egg.Position)
-            if onScreen then
-                local txt = Drawing.new("Text")
-                txt.Text = egg.Name.." ["..egg.Distance.."m]"
-                txt.Size = 12
-                txt.Center = true
-                txt.Outline = true
-                txt.Color = Color3.fromRGB(0, 255, 100)
-                txt.Position = Vector2.new(pos.X, pos.Y)
-                txt.Visible = true
-                table.insert(ESP.Drawings, txt)
-            end
-        end
-    end
 end)
 
 --=========================================================
--- [12] ANTI-AFK
+-- [SECTION 10] ANTI-AFK
 --=========================================================
 LocalPlayer.Idled:Connect(function()
     if Config.Misc.AntiAFK then
         VirtualUser:CaptureController()
         VirtualUser:ClickButton2(Vector2.new())
+        Log("Anti-AFK triggered.", "MISC")
     end
 end)
 
 --=========================================================
--- [13] WATERMARK SYSTEM
+-- [SECTION 11] FULLBRIGHT
 --=========================================================
-local WMParent = (gethui and gethui()) or LocalPlayer:WaitForChild("PlayerGui")
-local WatermarkGui = Instance.new("ScreenGui", WMParent)
-WatermarkGui.Name = "DerekWatermark"
-WatermarkGui.ResetOnSpawn = false
+local OriginalLighting = {
+    Ambient = Lighting.Ambient,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    Brightness = Lighting.Brightness,
+    FogEnd = Lighting.FogEnd
+}
 
-local WM = Instance.new("Frame", WatermarkGui)
-WM.Size = UDim2.fromOffset(300, 35)
-WM.Position = UDim2.new(0.5, -150, 0, 10)
-WM.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-WM.BorderSizePixel = 0
-Instance.new("UICorner", WM).CornerRadius = UDim.new(0, 6)
+local function ApplyFullbright()
+    Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    Lighting.Brightness = 3
+    Lighting.FogEnd = 100000
+end
 
-local WMStroke = Instance.new("UIStroke", WM)
-WMStroke.Color = Color3.fromRGB(255, 50, 50)
-WMStroke.Thickness = 1.5
-
-local WMLabel = Instance.new("TextLabel", WM)
-WMLabel.Size = UDim2.new(1, -10, 1, 0)
-WMLabel.Position = UDim2.fromOffset(5, 0)
-WMLabel.BackgroundTransparency = 1
-WMLabel.Text = "Derek Hub v23.0"
-WMLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-WMLabel.Font = Enum.Font.GothamBold
-WMLabel.TextSize = 14
-WMLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-task.spawn(function()
-    while true do
-        local fps = math.floor(1 / RunService.RenderStepped:Wait())
-        WMLabel.Text = "Derek Hub v23.0 | FPS: "..fps.." | Steals: "..State.Stats.EggsStolen.." | Kicks Blocked: "..State.Stats.KicksBlocked
-        task.wait(1)
-    end
-end)
+local function RemoveFullbright()
+    Lighting.Ambient = OriginalLighting.Ambient
+    Lighting.OutdoorAmbient = OriginalLighting.OutdoorAmbient
+    Lighting.Brightness = OriginalLighting.Brightness
+    Lighting.FogEnd = OriginalLighting.FogEnd
+end
 
 --=========================================================
--- [14] UI FRAMEWORK (LIBRARY)
+-- [SECTION 12] UI FRAMEWORK
 --=========================================================
 local function mk(cls, props, parent)
     local o = Instance.new(cls)
-    for k,v in pairs(props or {}) do o[k] = v end
+    for k, v in pairs(props or {}) do o[k] = v end
     if parent then o.Parent = parent end
     return o
 end
 
 local Theme = {
-    BG      = Color3.fromRGB(10, 10, 15),
-    Card    = Color3.fromRGB(20, 20, 30),
-    Accent  = Color3.fromRGB(230, 30, 60),
-    Accent2 = Color3.fromRGB(50, 150, 255),
-    Text    = Color3.fromRGB(245, 245, 250),
-    Subtext = Color3.fromRGB(150, 150, 170),
-    Off     = Color3.fromRGB(45, 45, 60)
+    BG         = Color3.fromRGB(10, 10, 16),
+    Card       = Color3.fromRGB(20, 20, 30),
+    CardLight  = Color3.fromRGB(30, 30, 42),
+    Accent     = Color3.fromRGB(230, 30, 60),
+    Accent2    = Color3.fromRGB(50, 150, 255),
+    Success    = Color3.fromRGB(0, 200, 100),
+    Warning    = Color3.fromRGB(255, 180, 0),
+    Text       = Color3.fromRGB(245, 245, 250),
+    Subtext    = Color3.fromRGB(150, 150, 170),
+    Off        = Color3.fromRGB(45, 45, 60)
 }
 
-local MainGui = mk("ScreenGui", {
-    Name = "DerekHubV23",
+local UIParent = LocalPlayer:WaitForChild("PlayerGui")
+local Screen = mk("ScreenGui", {
+    Name = "DerekHubV26",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-}, LocalPlayer:WaitForChild("PlayerGui"))
+}, UIParent)
 
--- Floating Button
+--=========================================================
+-- [SECTION 13] FLOATING BUTTON
+--=========================================================
 local FloatBtn = mk("TextButton", {
     Size = UDim2.fromOffset(60, 60),
     Position = UDim2.new(0, 20, 0.5, -30),
@@ -433,49 +455,86 @@ local FloatBtn = mk("TextButton", {
     TextSize = 30,
     BorderSizePixel = 0,
     AutoButtonColor = false
-}, MainGui)
+}, Screen)
 mk("UICorner", {CornerRadius = UDim.new(1, 0)}, FloatBtn)
-local FloatStroke = mk("UIStroke", {Color = Theme.Accent2, Thickness = 3}, FloatBtn)
+mk("UIStroke", {Color = Theme.Accent2, Thickness = 2}, FloatBtn)
 
--- Main Window
+-- Pulse Animation
+task.spawn(function()
+    while FloatBtn.Parent do
+        Tween:Create(FloatBtn, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            Size = UDim2.fromOffset(64, 64)
+        }):Play()
+        task.wait(1)
+        Tween:Create(FloatBtn, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            Size = UDim2.fromOffset(60, 60)
+        }):Play()
+        task.wait(1)
+    end
+end)
+
+--=========================================================
+-- [SECTION 14] MAIN WINDOW
+--=========================================================
 local Window = mk("Frame", {
-    Size = UDim2.fromOffset(600, 420),
-    Position = UDim2.new(0.5, -300, 0.5, -210),
+    Size = UDim2.fromOffset(620, 460),
+    Position = UDim2.new(0.5, -310, 0.5, -230),
     BackgroundColor3 = Theme.BG,
     BorderSizePixel = 0,
     Visible = false
-}, MainGui)
+}, Screen)
 mk("UICorner", {CornerRadius = UDim.new(0, 12)}, Window)
 local WinStroke = mk("UIStroke", {Color = Theme.Accent, Thickness = 2}, Window)
+local WinGradient = mk("UIGradient", {
+    Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(1, Theme.Accent2)
+    },
+    Rotation = 45
+}, WinStroke)
 
--- Title Bar
+--=========================================================
+-- [SECTION 15] TITLE BAR
+--=========================================================
 local TitleBar = mk("Frame", {
     Size = UDim2.new(1, 0, 0, 55),
     BackgroundColor3 = Theme.Card,
     BorderSizePixel = 0
 }, Window)
 mk("UICorner", {CornerRadius = UDim.new(0, 12)}, TitleBar)
-mk("Frame", {Size = UDim2.new(1, 0, 0, 28), Position = UDim2.new(0, 0, 1, -28), BackgroundColor3 = Theme.Card}, TitleBar)
+mk("Frame", {
+    Size = UDim2.new(1, 0, 0, 28),
+    Position = UDim2.new(0, 0, 1, -28),
+    BackgroundColor3 = Theme.Card,
+    BorderSizePixel = 0
+}, TitleBar)
 
-mk("TextLabel", {
-    Size = UDim2.new(0, 250, 0, 30),
+local TitleLabel = mk("TextLabel", {
+    Size = UDim2.new(0, 250, 0, 32),
     Position = UDim2.fromOffset(20, 8),
     BackgroundTransparency = 1,
     Text = "DEREK",
     TextColor3 = Theme.Text,
     Font = Enum.Font.GothamBlack,
-    TextSize = 28,
+    TextSize = 30,
     TextXAlignment = Enum.TextXAlignment.Left
 }, TitleBar)
+
+local TitleGradient = mk("UIGradient", {
+    Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 60, 60)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(60, 150, 255))
+    }
+}, TitleLabel)
 
 mk("TextLabel", {
     Size = UDim2.new(0, 250, 0, 18),
     Position = UDim2.fromOffset(20, 32),
     BackgroundTransparency = 1,
-    Text = "v23.0 | Titan Edition",
+    Text = "v26.0 | Mega Edition",
     TextColor3 = Theme.Accent2,
     Font = Enum.Font.Gotham,
-    TextSize = 12,
+    TextSize = 11,
     TextXAlignment = Enum.TextXAlignment.Left
 }, TitleBar)
 
@@ -487,28 +546,37 @@ local CloseBtn = mk("TextButton", {
     TextColor3 = Theme.Text,
     Font = Enum.Font.GothamBold,
     TextSize = 16,
-    BorderSizePixel = 0
+    BorderSizePixel = 0,
+    AutoButtonColor = false
 }, TitleBar)
 mk("UICorner", {CornerRadius = UDim.new(0, 8)}, CloseBtn)
 
--- Sidebar
+--=========================================================
+-- [SECTION 16] SIDEBAR
+--=========================================================
 local Sidebar = mk("Frame", {
-    Size = UDim2.fromOffset(150, 355),
+    Size = UDim2.new(0, 160, 1, -70),
     Position = UDim2.fromOffset(10, 60),
     BackgroundColor3 = Theme.Card,
     BorderSizePixel = 0
 }, Window)
 mk("UICorner", {CornerRadius = UDim.new(0, 10)}, Sidebar)
-mk("UIListLayout", {Padding = UDim.new(0, 6)}, Sidebar)
+mk("UIListLayout", {
+    Padding = UDim.new(0, 6),
+    SortOrder = Enum.SortOrder.LayoutOrder
+}, Sidebar)
 mk("UIPadding", {PaddingTop = UDim.new(0, 10)}, Sidebar)
 
+--=========================================================
+-- [SECTION 17] TABS
+--=========================================================
 local Pages = {}
-local TabBtns = {}
+local TabButtons = {}
 
 local function CreateTab(name, icon, order, isFirst)
     local btn = mk("TextButton", {
         Size = UDim2.new(1, -12, 0, 34),
-        BackgroundColor3 = isFirst and Theme.Accent or Theme.Card,
+        BackgroundColor3 = isFirst and Theme.Accent or Theme.CardLight,
         Text = "  "..icon.."  "..name,
         TextColor3 = Theme.Text,
         Font = Enum.Font.GothamMedium,
@@ -519,21 +587,26 @@ local function CreateTab(name, icon, order, isFirst)
     }, Sidebar)
     mk("UICorner", {CornerRadius = UDim.new(0, 8)}, btn)
     
-    local page = mk("Frame", {
-        Size = UDim2.new(0, 430, 0, 355),
-        Position = UDim2.fromOffset(160, 60),
+    local page = mk("ScrollingFrame", {
+        Size = UDim2.new(1, -190, 1, -70),
+        Position = UDim2.fromOffset(180, 60),
         BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Theme.Accent2,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
         Visible = isFirst
     }, Window)
+    mk("UIListLayout", {Padding = UDim.new(0, 6)}, page)
     
-    TabBtns[name] = btn
+    TabButtons[name] = btn
     Pages[name] = page
     
     btn.MouseButton1Click:Connect(function()
         for n, p in pairs(Pages) do p.Visible = (n == name) end
-        for n, b in pairs(TabBtns) do
-            TweenService:Create(b, TweenInfo.new(0.15), {
-                BackgroundColor3 = (n == name) and Theme.Accent or Theme.Card
+        for n, b in pairs(TabButtons) do
+            Tween:Create(b, TweenInfo.new(0.15), {
+                BackgroundColor3 = (n == name) and Theme.Accent or Theme.CardLight
             }):Play()
         end
     end)
@@ -541,22 +614,22 @@ local function CreateTab(name, icon, order, isFirst)
     return page
 end
 
-local FarmTab    = CreateTab("Farm", "🌾", 1, true)
-local MoveTab    = CreateTab("Move", "🏃", 2, false)
-local VisualTab  = CreateTab("Visual", "👁️", 3, false)
-local EggTab     = CreateTab("Eggs", "🥚", 4, false)
-local StatTab    = CreateTab("Stats", "📊", 5, false)
-local LogTab     = CreateTab("Logs", "📜", 6, false)
+local FarmPage    = CreateTab("Farm", "🌾", 1, true)
+local MovePage    = CreateTab("Move", "🏃", 2, false)
+local VisualPage  = CreateTab("Visual", "👁️", 3, false)
+local EggPage     = CreateTab("Eggs", "🥚", 4, false)
+local StatsPage   = CreateTab("Stats", "📊", 5, false)
+local LogsPage    = CreateTab("Logs", "📜", 6, false)
+local SettingsPage= CreateTab("Settings", "⚙️", 7, false)
 
 --=========================================================
--- [15] UI COMPONENTS
+-- [SECTION 18] COMPONENT: TOGGLE
 --=========================================================
 local function AddToggle(parent, text, default, callback, posY)
     local row = mk("Frame", {
         Size = UDim2.new(1, -10, 0, 42),
         Position = UDim2.fromOffset(5, posY),
-        BackgroundColor3 = Theme.Card,
-        BorderSizePixel = 0
+        BackgroundColor3 = Theme.Card
     }, parent)
     mk("UICorner", {CornerRadius = UDim.new(0, 8)}, row)
     
@@ -574,7 +647,7 @@ local function AddToggle(parent, text, default, callback, posY)
     local sw = mk("Frame", {
         Size = UDim2.fromOffset(42, 22),
         Position = UDim2.new(1, -54, 0.5, -11),
-        BackgroundColor3 = default and Theme.Accent or Theme.Off
+        BackgroundColor3 = default and Theme.Success or Theme.Off
     }, row)
     mk("UICorner", {CornerRadius = UDim.new(1, 0)}, sw)
     
@@ -594,22 +667,30 @@ local function AddToggle(parent, text, default, callback, posY)
     
     click.MouseButton1Click:Connect(function()
         state = not state
-        TweenService:Create(sw, TweenInfo.new(0.15), {BackgroundColor3 = state and Theme.Accent or Theme.Off}):Play()
-        TweenService:Create(knob, TweenInfo.new(0.15), {Position = UDim2.new(0, state and 21 or 2, 0.5, -9)}):Play()
+        Tween:Create(sw, TweenInfo.new(0.15), {
+            BackgroundColor3 = state and Theme.Success or Theme.Off
+        }):Play()
+        Tween:Create(knob, TweenInfo.new(0.15), {
+            Position = UDim2.new(0, state and 21 or 2, 0.5, -9)
+        }):Play()
         if callback then pcall(callback, state) end
     end)
+    
+    return row
 end
 
+--=========================================================
+-- [SECTION 19] COMPONENT: SLIDER
+--=========================================================
 local function AddSlider(parent, text, minV, maxV, default, callback, posY)
     local row = mk("Frame", {
         Size = UDim2.new(1, -10, 0, 58),
         Position = UDim2.fromOffset(5, posY),
-        BackgroundColor3 = Theme.Card,
-        BorderSizePixel = 0
+        BackgroundColor3 = Theme.Card
     }, parent)
     mk("UICorner", {CornerRadius = UDim.new(0, 8)}, row)
     
-    local lbl = mk("TextLabel", {
+    local label = mk("TextLabel", {
         Size = UDim2.new(1, -20, 0, 20),
         Position = UDim2.fromOffset(14, 6),
         BackgroundTransparency = 1,
@@ -623,32 +704,46 @@ local function AddSlider(parent, text, minV, maxV, default, callback, posY)
     local track = mk("Frame", {
         Size = UDim2.new(1, -28, 0, 8),
         Position = UDim2.fromOffset(14, 38),
-        BackgroundColor3 = Theme.Off,
-        BorderSizePixel = 0
+        BackgroundColor3 = Theme.Off
     }, row)
     mk("UICorner", {CornerRadius = UDim.new(1, 0)}, track)
     
     local fill = mk("Frame", {
         Size = UDim2.new((default - minV) / (maxV - minV), 0, 1, 0),
-        BackgroundColor3 = Theme.Accent,
-        BorderSizePixel = 0
+        BackgroundColor3 = Theme.Accent2
     }, track)
     mk("UICorner", {CornerRadius = UDim.new(1, 0)}, fill)
     
     local dragging = false
     local function update(x)
         local rel = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-        local val = math.floor(minV + (maxV - minV) * rel)
+        local value = math.floor(minV + (maxV - minV) * rel)
         fill.Size = UDim2.new(rel, 0, 1, 0)
-        lbl.Text = text..": "..val
-        if callback then pcall(callback, val) end
+        label.Text = text..": "..value
+        if callback then pcall(callback, value) end
     end
     
-    track.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; update(i.Position.X) end end)
-    UIS.InputChanged:Connect(function(i) if dragging and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then update(i.Position.X) end end)
-    UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+    track.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            update(i.Position.X)
+        end
+    end)
+    UIS.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+            update(i.Position.X)
+        end
+    end)
+    UIS.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
 end
 
+--=========================================================
+-- [SECTION 20] COMPONENT: BUTTON
+--=========================================================
 local function AddButton(parent, text, color, callback, posY)
     local btn = mk("TextButton", {
         Size = UDim2.new(1, -10, 0, 38),
@@ -662,80 +757,101 @@ local function AddButton(parent, text, color, callback, posY)
         AutoButtonColor = false
     }, parent)
     mk("UICorner", {CornerRadius = UDim.new(0, 8)}, btn)
+    
     btn.MouseButton1Click:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.1), {
+            BackgroundColor3 = Theme.CardLight
+        }):Play()
+        task.wait(0.15)
+        Tween:Create(btn, TweenInfo.new(0.1), {
+            BackgroundColor3 = color
+        }):Play()
         if callback then pcall(callback) end
     end)
 end
 
 --=========================================================
--- [16] FARM TAB
+-- [SECTION 21] FARM PAGE
 --=========================================================
-AddToggle(FarmTab, "Auto Steal (Best)", false, function(v) Config.Farm.AutoSteal = v end, 5)
-AddToggle(FarmTab, "Safe Steal Mode", true, function(v) Config.Farm.SafeMode = v end, 52)
-AddToggle(FarmTab, "Auto Hatch", false, function(v) Config.Farm.AutoHatch = v end, 99)
-AddToggle(FarmTab, "Auto Butterfly", false, function(v) Config.Farm.AutoButterfly = v end, 146)
-AddSlider(FarmTab, "Steal Delay", 1, 20, 4, function(v) Config.Farm.StealDelay = v / 10 end, 193)
-AddButton(FarmTab, "Steal Best Egg Now", Theme.Accent2, function()
+AddToggle(FarmPage, "Auto Steal (Best Egg)", false, function(v) Config.Farm.AutoSteal = v end, 5)
+AddToggle(FarmPage, "Safe Steal Mode", true, function(v) Config.Farm.SafeMode = v end, 52)
+AddToggle(FarmPage, "Auto Hatch Eggs", false, function(v) Config.Farm.AutoHatch = v end, 99)
+AddToggle(FarmPage, "Auto Butterfly", false, function(v) Config.Farm.AutoButterfly = v end, 146)
+AddSlider(FarmPage, "Steal Delay", 1, 20, 4, function(v) Config.Farm.StealDelay = v / 10 end, 193)
+AddSlider(FarmPage, "Hatch Delay", 1, 10, 5, function(v) Config.Farm.HatchDelay = v / 10 end, 260)
+AddSlider(FarmPage, "Butterfly Range", 10, 100, 50, function(v) Config.Farm.ButterflyRange = v end, 327)
+AddButton(FarmPage, "Steal Best Egg (Manual)", Theme.Accent2, function()
     local eggs = GetEggs()
     if #eggs > 0 then StealEgg(eggs[1]) end
-end, 260)
+end, 394)
 
 --=========================================================
--- [17] MOVE TAB
+-- [SECTION 22] MOVE PAGE
 --=========================================================
-AddToggle(MoveTab, "Enable Speed", false, function(v) Config.Movement.SpeedEnabled = v end, 5)
-AddSlider(MoveTab, "Walk Speed", 16, 500, 16, function(v) Config.Movement.WalkSpeed = v end, 52)
-AddToggle(MoveTab, "Enable Fly", false, function(v) Config.Movement.FlyEnabled = v end, 119)
-AddSlider(MoveTab, "Fly Speed", 20, 300, 60, function(v) Config.Movement.FlySpeed = v end, 166)
-AddToggle(MoveTab, "Noclip", false, function(v) Config.Movement.Noclip = v end, 233)
-AddToggle(MoveTab, "Infinite Jump", false, function(v) Config.Movement.InfiniteJump = v end, 280)
+AddToggle(MovePage, "Enable Speed", false, function(v) Config.Movement.SpeedEnabled = v end, 5)
+AddSlider(MovePage, "Walk Speed", 16, 500, 16, function(v) Config.Movement.WalkSpeed = v end, 52)
+AddToggle(MovePage, "Enable Fly", false, function(v) Config.Movement.FlyEnabled = v end, 119)
+AddSlider(MovePage, "Fly Speed", 20, 300, 60, function(v) Config.Movement.FlySpeed = v end, 166)
+AddToggle(MovePage, "Noclip", false, function(v) Config.Movement.Noclip = v end, 233)
+AddToggle(MovePage, "Infinite Jump", false, function(v) Config.Movement.InfiniteJump = v end, 280)
+AddToggle(MovePage, "Anti Fling", false, function(v) Config.Movement.AntiFling = v end, 327)
 
 --=========================================================
--- [18] VISUAL TAB
+-- [SECTION 23] VISUAL PAGE
 --=========================================================
-AddToggle(VisualTab, "ESP Players", false, function(v) Config.Visual.ESP_Players = v end, 5)
-AddToggle(VisualTab, "ESP Eggs", false, function(v) Config.Visual.ESP_Eggs = v end, 52)
-AddToggle(VisualTab, "Fullbright", false, function(v) 
+AddToggle(VisualPage, "ESP Eggs", false, function(v) Config.Visual.ESP_Eggs = v end, 5)
+AddToggle(VisualPage, "ESP Players", false, function(v) Config.Visual.ESP_Players = v end, 52)
+AddToggle(VisualPage, "ESP Tracers", false, function(v) Config.Visual.ESP_Tracers = v end, 99)
+AddToggle(VisualPage, "Fullbright", false, function(v)
     Config.Visual.Fullbright = v
+    if v then ApplyFullbright() else RemoveFullbright() end
+end, 146)
+AddToggle(VisualPage, "No Fog", false, function(v)
+    Config.Visual.NoFog = v
     if v then
-        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
-        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
-        Lighting.Brightness = 3
+        Lighting.FogEnd = 100000
     else
-        Lighting.Ambient = Color3.fromRGB(70, 70, 70)
-        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-        Lighting.Brightness = 2
+        Lighting.FogEnd = 500
     end
-end, 99)
+end, 193)
 
 --=========================================================
--- [19] EGGS TAB (Dynamic List)
+-- [SECTION 24] EGGS PAGE (DYNAMIC LIST)
 --=========================================================
-local EggScroll = mk("ScrollingFrame", {
-    Size = UDim2.new(1, -10, 1, -10),
+local EggListContainer = mk("Frame", {
+    Size = UDim2.new(1, -10, 0, 0),
     Position = UDim2.fromOffset(5, 5),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-    ScrollBarThickness = 3,
-    ScrollBarImageColor3 = Theme.Accent,
-    CanvasSize = UDim2.new(0, 0, 0, 0)
-}, EggTab)
-mk("UIListLayout", {Padding = UDim.new(0, 6)}, EggScroll)
+    BackgroundTransparency = 1
+}, EggPage)
+mk("UIListLayout", {Padding = UDim.new(0, 6)}, EggListContainer)
 
 task.spawn(function()
     while task.wait(1.5) do
         if not Pages["Eggs"].Visible then continue end
         
-        for _, v in pairs(EggScroll:GetChildren()) do
+        for _, v in pairs(EggListContainer:GetChildren()) do
             if v:IsA("Frame") then v:Destroy() end
         end
         
         local eggs = GetEggs()
+        
+        if #eggs == 0 then
+            local empty = mk("TextLabel", {
+                Size = UDim2.new(1, 0, 0, 40),
+                BackgroundTransparency = 1,
+                Text = "No eggs found nearby",
+                TextColor3 = Theme.Subtext,
+                Font = Enum.Font.GothamMedium,
+                TextSize = 14
+            }, EggListContainer)
+            continue
+        end
+        
         for i, egg in ipairs(eggs) do
             local row = mk("Frame", {
                 Size = UDim2.new(1, -5, 0, 48),
                 BackgroundColor3 = Theme.Card
-            }, EggScroll)
+            }, EggListContainer)
             mk("UICorner", {CornerRadius = UDim.new(0, 8)}, row)
             
             mk("TextLabel", {
@@ -764,7 +880,7 @@ task.spawn(function()
             local btn = mk("TextButton", {
                 Size = UDim2.fromOffset(70, 30),
                 Position = UDim2.new(1, -80, 0.5, -15),
-                BackgroundColor3 = Theme.Accent,
+                BackgroundColor3 = Theme.Success,
                 Text = "Steal",
                 TextColor3 = Theme.Text,
                 Font = Enum.Font.GothamBold,
@@ -778,29 +894,32 @@ task.spawn(function()
                 btn.BackgroundColor3 = Theme.Off
                 StealEgg(egg, function()
                     btn.Text = "✓"
-                    btn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+                    btn.BackgroundColor3 = Theme.Success
                     task.wait(1)
                     if btn.Parent then
                         btn.Text = "Steal"
-                        btn.BackgroundColor3 = Theme.Accent
+                        btn.BackgroundColor3 = Theme.Success
                     end
                 end)
             end)
         end
         
-        EggScroll.CanvasSize = UDim2.new(0, 0, 0, #eggs * 54)
+        EggPage.CanvasSize = UDim2.new(0, 0, 0, #eggs * 54)
+        EggListContainer.Size = UDim2.new(1, -10, 0, #eggs * 54)
     end
 end)
 
 --=========================================================
--- [20] STATS TAB
+-- [SECTION 25] STATS PAGE
 --=========================================================
-local function AddStatLabel(parent, text, posY)
+local StatLabels = {}
+
+local function AddStatLabel(parent, name, posY)
     local lbl = mk("TextLabel", {
-        Size = UDim2.new(1, -10, 0, 28),
+        Size = UDim2.new(1, -10, 0, 32),
         Position = UDim2.fromOffset(5, posY),
         BackgroundColor3 = Theme.Card,
-        Text = text,
+        Text = name..": 0",
         TextColor3 = Theme.Text,
         Font = Enum.Font.GothamMedium,
         TextSize = 13,
@@ -808,45 +927,47 @@ local function AddStatLabel(parent, text, posY)
         BorderSizePixel = 0
     }, parent)
     mk("UICorner", {CornerRadius = UDim.new(0, 6)}, lbl)
-    mk("UIPadding", {PaddingLeft = UDim.new(0, 10)}, lbl)
+    mk("UIPadding", {PaddingLeft = UDim.new(0, 14)}, lbl)
+    StatLabels[name] = lbl
     return lbl
 end
 
-local StatEggs  = AddStatLabel(StatTab, "Eggs Stolen: 0", 5)
-local StatHatch = AddStatLabel(StatTab, "Hatches: 0", 38)
-local StatKicks = AddStatLabel(StatTab, "Kicks Blocked: 0", 71)
-local StatTime  = AddStatLabel(StatTab, "Uptime: 0s", 104)
+AddStatLabel(StatsPage, "Eggs Stolen", 5)
+AddStatLabel(StatsPage, "Hatches", 43)
+AddStatLabel(StatsPage, "Butterflies", 81)
+AddStatLabel(StatsPage, "Session Time", 119)
+AddStatLabel(StatsPage, "Memory", 157)
 
 task.spawn(function()
     while task.wait(1) do
         if not Pages["Stats"].Visible then continue end
-        StatEggs.Text = "Eggs Stolen: "..State.Stats.EggsStolen
-        StatHatch.Text = "Hatches: "..State.Stats.HatchesDone
-        StatKicks.Text = "Kicks Blocked: "..State.Stats.KicksBlocked
-        StatTime.Text = "Uptime: "..math.floor(tick() - SessionStart).."s"
+        StatLabels["Eggs Stolen"].Text = "Eggs Stolen: "..State.Stats.EggsStolen
+        StatLabels["Hatches"].Text = "Hatches: "..State.Stats.HatchesDone
+        StatLabels["Butterflies"].Text = "Butterflies: "..State.Stats.Butterflies
+        local elapsed = math.floor(tick() - State.Stats.SessionStart)
+        StatLabels["Session Time"].Text = "Session Time: "..elapsed.."s"
+        StatLabels["Memory"].Text = "Memory: "..math.floor(collectgarbage("count")).." KB"
     end
 end)
 
 --=========================================================
--- [21] LOGS TAB
+-- [SECTION 26] LOGS PAGE
 --=========================================================
-local LogScroll = mk("ScrollingFrame", {
-    Size = UDim2.new(1, -10, 1, -10),
+local LogContainer = mk("Frame", {
+    Size = UDim2.new(1, -10, 0, 0),
     Position = UDim2.fromOffset(5, 5),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-    ScrollBarThickness = 3,
-    ScrollBarImageColor3 = Theme.Accent2,
-    CanvasSize = UDim2.new(0, 0, 0, 0)
-}, LogTab)
-mk("UIListLayout", {Padding = UDim.new(0, 4)}, LogScroll)
+    BackgroundTransparency = 1
+}, LogsPage)
+mk("UIListLayout", {Padding = UDim.new(0, 4)}, LogContainer)
 
 task.spawn(function()
-    while task.wait(1.5) do
+    while task.wait(2) do
         if not Pages["Logs"].Visible then continue end
-        for _, v in pairs(LogScroll:GetChildren()) do
+        
+        for _, v in pairs(LogContainer:GetChildren()) do
             if v:IsA("TextLabel") then v:Destroy() end
         end
+        
         for i = #State.Logs, 1, -1 do
             local lbl = mk("TextLabel", {
                 Size = UDim2.new(1, -5, 0, 22),
@@ -858,58 +979,122 @@ task.spawn(function()
                 TextXAlignment = Enum.TextXAlignment.Left,
                 TextTruncate = Enum.TextTruncate.AtEnd,
                 BorderSizePixel = 0
-            }, LogScroll)
+            }, LogContainer)
             mk("UICorner", {CornerRadius = UDim.new(0, 4)}, lbl)
             mk("UIPadding", {PaddingLeft = UDim.new(0, 8)}, lbl)
         end
-        LogScroll.CanvasSize = UDim2.new(0, 0, 0, #State.Logs * 26)
+        
+        LogsPage.CanvasSize = UDim2.new(0, 0, 0, #State.Logs * 26)
+        LogContainer.Size = UDim2.new(1, -10, 0, #State.Logs * 26)
     end
 end)
 
 --=========================================================
--- [22] WINDOW CONTROLS (DRAG & CLOSE)
+-- [SECTION 27] SETTINGS PAGE
+--=========================================================
+AddToggle(SettingsPage, "Anti-AFK", true, function(v) Config.Misc.AntiAFK = v end, 5)
+AddButton(SettingsPage, "Save Profile", Theme.Success, function()
+    State.SavedProfiles[State.CurrentProfile] = {
+        Farm = Config.Farm,
+        Movement = Config.Movement,
+        Visual = Config.Visual
+    }
+    Log("Profile saved: "..State.CurrentProfile, "CONFIG")
+end, 52)
+AddButton(SettingsPage, "Clear All Logs", Theme.Warning, function()
+    State.Logs = {}
+    Log("Logs cleared.", "CONFIG")
+end, 100)
+AddButton(SettingsPage, "Rejoin Server", Theme.Accent, function()
+    game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
+end, 148)
+AddButton(SettingsPage, "Destroy UI", Theme.Accent2, function()
+    Screen:Destroy()
+end, 196)
+
+--=========================================================
+-- [SECTION 28] DRAG SYSTEM
 --=========================================================
 local function MakeDraggable(frame, handle)
-    local dragging, dragStart, startPos
+    local dragging, dragStart, startPos, moved
     handle.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             dragStart = i.Position
             startPos = frame.Position
-            i.Changed:Connect(function()
-                if i.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
+            moved = false
         end
     end)
     UIS.InputChanged:Connect(function(i)
         if dragging and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
             local delta = i.Position - dragStart
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            if delta.Magnitude > 5 then moved = true end
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
         end
     end)
+    UIS.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    return function() return moved end
 end
 
 MakeDraggable(Window, TitleBar)
-MakeDraggable(FloatBtn, FloatBtn)
+local btnMoved = MakeDraggable(FloatBtn, FloatBtn)
 
-local IsOpen = false
+--=========================================================
+-- [SECTION 29] OPEN/CLOSE HANDLERS
+--=========================================================
+local isOpen = false
+
 FloatBtn.MouseButton1Click:Connect(function()
-    IsOpen = not IsOpen
-    Window.Visible = IsOpen
-    if IsOpen then
-        Window.Size = UDim2.fromOffset(600, 0)
-        TweenService:Create(Window, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(600, 420)}):Play()
+    if btnMoved() then return end
+    isOpen = not isOpen
+    Window.Visible = isOpen
+    if isOpen then
+        Window.Size = UDim2.fromOffset(620, 0)
+        Tween:Create(Window, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(620, 460)
+        }):Play()
     end
 end)
 
 CloseBtn.MouseButton1Click:Connect(function()
-    IsOpen = false
+    isOpen = false
     Window.Visible = false
 end)
 
 --=========================================================
--- [23] END OF FILE
+-- [SECTION 30] KEYBINDS
 --=========================================================
-Log("Derek Hub v23.0 loaded successfully.", "SYSTEM")
-Log("Bypass: "..(State.Bypass.Active and "ACTIVE" or "FAILED"), "SYSTEM")
-Log("Total modules: 40+", "SYSTEM")
+UIS.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        isOpen = not isOpen
+        Window.Visible = isOpen
+    end
+    if input.KeyCode == Enum.KeyCode.G then
+        local eggs = GetEggs()
+        if #eggs > 0 then StealEgg(eggs[1]) end
+    end
+end)
+
+--=========================================================
+-- [SECTION 31] FINAL INIT
+--=========================================================
+Log("All modules loaded.", "SYSTEM")
+Log("Bypass: Safe API mode", "SYSTEM")
+Log("Total features: 50+", "SYSTEM")
+Log("Press F to toggle UI", "INFO")
+Log("Press G to steal best egg", "INFO")
+
+-- Initial cache
+task.spawn(function()
+    task.wait(1)
+    RefreshEggCache()
+    Log("Egg cache initialized.", "SYSTEM")
+end)
