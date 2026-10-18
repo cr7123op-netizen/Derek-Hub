@@ -1,4 +1,253 @@
---[[
+--[[ Derek Hub v6.1 — CoreGui Stealth | Steal An Egg | Author: ALPHA ]]
+task.wait(2)
+
+local Players    = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace  = game:GetService("Workspace")
+local UIS        = game:GetService("UserInputService")
+local Tween      = game:GetService("TweenService")
+local VU         = game:GetService("VirtualUser")
+local LP         = Players.LocalPlayer
+
+local Config = {
+    AutoSteal = false,
+    AutoButterfly = false,
+    AutoHatch = false,
+    StealDelay = 0.4,
+}
+
+local function getChar()
+    local c = LP.Character
+    return c, c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart")
+end
+
+-- 1. سرقة البيض (طبيعية بدون teleport)
+local stealing = false
+local function startSteal()
+    if stealing then return end
+    stealing = true
+    task.spawn(function()
+        while Config.AutoSteal do
+            local char, hum, hrp = getChar()
+            if char and hum and hrp and hum.Health > 0 then
+                local closestEgg, closestDist = nil, math.huge
+                for _, v in ipairs(Workspace:GetDescendants()) do
+                    if (v:IsA("Model") or v:IsA("Part")) and v.Name:lower():find("egg") and not v.Name:lower():find("plot") then
+                        local prompt = v:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt then
+                            local pos = (v:IsA("Model") and v:GetPivot().Position) or v.Position
+                            local dist = (pos - hrp.Position).Magnitude
+                            if dist < closestDist then
+                                closestEgg, closestDist = {model=v, prompt=prompt, pos=pos}, dist
+                            end
+                        end
+                    end
+                end
+
+                if closestEgg then
+                    if closestDist > 8 then
+                        hum:MoveTo(closestEgg.pos)
+                        task.wait(0.2)
+                    else
+                        hum:MoveTo(hrp.Position)
+                        task.wait(math.random(10, 20) / 100)
+                        pcall(function() fireproximityprompt(closestEgg.prompt) end)
+                        task.wait(math.random(15, 25) / 10)
+                    end
+                else
+                    task.wait(1)
+                end
+            else
+                task.wait(1)
+            end
+        end
+        stealing = false
+    end)
+end
+
+-- 2. صيد الفراشات
+local catching = false
+local function startButterfly()
+    if catching then return end
+    catching = true
+    task.spawn(function()
+        while Config.AutoButterfly do
+            local char, hum, hrp = getChar()
+            if char and hum and hrp and hum.Health > 0 then
+                local closestB, closestDist = nil, math.huge
+                for _, v in ipairs(Workspace:GetDescendants()) do
+                    if (v:IsA("Model") or v:IsA("Part")) and (v.Name:lower():find("butterfly") or v.Name:lower():find("moth")) then
+                        local prompt = v:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt then
+                            local pos = (v:IsA("Model") and v:GetPivot().Position) or v.Position
+                            local dist = (pos - hrp.Position).Magnitude
+                            if dist < closestDist then
+                                closestB, closestDist = {model=v, prompt=prompt, pos=pos}, dist
+                            end
+                        end
+                    end
+                end
+
+                if closestB then
+                    if closestDist > 8 then
+                        hum:MoveTo(closestB.pos)
+                        task.wait(0.2)
+                    else
+                        hum:MoveTo(hrp.Position)
+                        pcall(function() fireproximityprompt(closestB.prompt) end)
+                        task.wait(0.4)
+                    end
+                else
+                    task.wait(1)
+                end
+            else
+                task.wait(1)
+            end
+        end
+        catching = false
+    end)
+end
+
+-- 3. فقس البيض تلقائياً
+local function startHatch()
+    task.spawn(function()
+        while Config.AutoHatch do
+            local char = LP.Character
+            if char then
+                local plot = Workspace:FindFirstChild(LP.Name .. "'s Plot")
+                if plot then
+                    for _, v in ipairs(plot:GetDescendants()) do
+                        if v:IsA("ProximityPrompt") and (v.ActionText:lower():find("hatch") or v.Parent.Name:lower():find("egg")) then
+                            pcall(function() fireproximityprompt(v) end)
+                        end
+                    end
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+-- 4. Anti AFK
+LP.Idled:Connect(function()
+    pcall(function()
+        VU:CaptureController()
+        VU:ClickButton2(Vector2.new())
+    end)
+end)
+
+-- ==========================================
+-- ============ واجهة (CoreGui) ============
+-- ==========================================
+local function mk(cls, props, parent)
+    local o = Instance.new(cls)
+    for k,v in pairs(props or {}) do o[k] = v end
+    if parent then o.Parent = parent end
+    return o
+end
+
+local colors = {
+    bg = Color3.fromRGB(18, 18, 20),
+    panel = Color3.fromRGB(28, 28, 32),
+    accent = Color3.fromRGB(220, 40, 50),
+    text = Color3.fromRGB(240, 240, 240),
+    off = Color3.fromRGB(60, 60, 70)
+}
+
+-- محاولة استخدام CoreGui، وإذا فشلت نرجع PlayerGui
+local uiParent
+pcall(function()
+    uiParent = game:GetService("CoreGui")
+end)
+if not uiParent then
+    uiParent = LP:WaitForChild("PlayerGui")
+end
+
+local gui = mk("ScreenGui", {
+    Name = "DHub",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+}, uiParent)
+
+-- زر D
+local btn = mk("TextButton", {
+    Size=UDim2.fromOffset(56,56), Position=UDim2.new(0,15,0.4,0),
+    BackgroundColor3=colors.accent, Text="D", TextColor3=Color3.new(1,1,1),
+    Font=Enum.Font.GothamBold, TextSize=26, BorderSizePixel=0, AutoButtonColor=false
+}, gui)
+mk("UICorner",{CornerRadius=UDim.new(1,0)}, btn)
+mk("UIStroke",{Color=colors.accent, Thickness=2}, btn)
+
+-- البنل
+local main = mk("Frame", {
+    Size=UDim2.fromOffset(280, 360), Position=UDim2.new(0.5,-140,0.5,-180),
+    BackgroundColor3=colors.bg, BorderSizePixel=0, Visible=false
+}, gui)
+mk("UICorner",{CornerRadius=UDim.new(0,12)}, main)
+mk("UIStroke",{Color=colors.accent, Thickness=1.5}, main)
+
+local top = mk("Frame", {Size=UDim2.new(1,0,0,40), BackgroundColor3=colors.panel, BorderSizePixel=0}, main)
+mk("UICorner",{CornerRadius=UDim.new(0,12)}, top)
+mk("TextLabel",{Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="Derek Hub v6.1", Font=Enum.Font.GothamBold, TextSize=14, TextColor3=colors.text}, top)
+
+local scroll = mk("ScrollingFrame", {
+    Size=UDim2.new(1,-20,1,-60), Position=UDim2.new(0,10,0,50),
+    BackgroundTransparency=1, ScrollBarThickness=2, CanvasSize=UDim2.new(0,0,0,0)
+}, main)
+mk("UIListLayout",{Padding=UDim.new(0,8)}, scroll)
+
+local function addBtn(text, default, callback)
+    local row = mk("Frame",{Size=UDim2.new(1,-10,0,36), BackgroundColor3=colors.panel}, scroll)
+    mk("UICorner",{CornerRadius=UDim.new(0,8)}, row)
+    mk("TextLabel",{Size=UDim2.new(1,-50,1,0), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, Text=text, TextColor3=colors.text, Font=Enum.Font.GothamMedium, TextSize=13, TextXAlignment=Enum.TextXAlignment.Left}, row)
+    
+    local sw = mk("Frame",{Size=UDim2.fromOffset(36,20), Position=UDim2.new(1,-46,0.5,-10), BackgroundColor3=default and colors.accent or colors.off}, row)
+    mk("UICorner",{CornerRadius=UDim.new(1,0)}, sw)
+    local knob = mk("Frame",{Size=UDim2.fromOffset(16,16), Position=UDim2.new(0, default and 18 or 2, 0.5, -8), BackgroundColor3=Color3.new(1,1,1)}, sw)
+    mk("UICorner",{CornerRadius=UDim.new(1,0)}, knob)
+    
+    local state = default
+    local click = mk("TextButton",{Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text=""}, row)
+    click.MouseButton1Click:Connect(function()
+        state = not state
+        Tween:Create(sw, TweenInfo.new(0.15), {BackgroundColor3 = state and colors.accent or colors.off}):Play()
+        Tween:Create(knob, TweenInfo.new(0.15), {Position = UDim2.new(0, state and 18 or 2, 0.5, -8)}):Play()
+        if callback then pcall(callback, state) end
+    end)
+end
+
+addBtn("Auto Steal", false, function(v) Config.AutoSteal = v; if v then startSteal() end end)
+addBtn("Auto Butterflies", false, function(v) Config.AutoButterfly = v; if v then startButterfly() end end)
+addBtn("Auto Hatch", false, function(v) Config.AutoHatch = v; if v then startHatch() end end)
+
+-- فتح وقفل
+local open = false
+btn.MouseButton1Click:Connect(function()
+    open = not open
+    main.Visible = open
+end)
+
+-- سحب الزر
+local dragging, dragStart, startPos
+btn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = btn.Position
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+        local delta = input.Position - dragStart
+        btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)--[[
     Derek Hub v5.0 — Ultimate Mobile Edition
     Features: Anti-Cheat Bypass | Auto Steal | Fly | Infinite Jump | Auto Butterflies
     Game: Steal An Egg
