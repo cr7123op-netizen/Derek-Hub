@@ -1,4 +1,4 @@
---[[ Derek Hub v14.5 — God Mode | Steal An Egg | Author: ALPHA ]]
+--[[ Derek Hub v14.0 — Ghost Protocol | Steal An Egg | Author: ALPHA ]]
 task.wait(1)
 
 local Players = game:GetService("Players")
@@ -13,53 +13,13 @@ local Config = {
     SpeedValue = 16,
 }
 
--- 1. حماية ضد الطرد (Anti-Kick)
-pcall(function()
-    local mt = getrawmetatable(game)
-    local oldNamecall = mt.__namecall
-    setreadonly(mt, false)
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if method == "Kick" then
-            return nil -- يمنع الطرد
-        end
-        return oldNamecall(self, ...)
-    end)
-    setreadonly(mt, true)
-end)
-
--- 2. دوال مساعدة
+-- دوال أساسية
 local function getChar()
     local c = LP.Character
     return c, c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart")
 end
 
--- تحويل القيمة النصية (مثل 1.5B) إلى رقم
-local function parseValue(text)
-    if not text then return 0 end
-    text = string.upper(text)
-    local num, suffix = text:match("%$([%d%.]+)([KMBT]?)")
-    if num then
-        local n = tonumber(num)
-        if suffix == "K" then return n * 1000
-        elseif suffix == "M" then return n * 1000000
-        elseif suffix == "B" then return n * 1000000000
-        elseif suffix == "T" then return n * 1000000000000
-        else return n end
-    end
-    return 0
-end
-
--- تنسيق الرقم للعرض (مثل 1.5B)
-local function formatValue(val)
-    if val >= 1000000000000 then return string.format("%.1fT", val/1000000000000)
-    elseif val >= 1000000000 then return string.format("%.1fB", val/1000000000)
-    elseif val >= 1000000 then return string.format("%.1fM", val/1000000)
-    elseif val >= 1000 then return string.format("%.1fK", val/1000)
-    else return tostring(val) end
-end
-
--- جلب الصورة
+-- جلب الصورة (بحث عميق)
 local function getModelImage(model)
     for _, v in ipairs(model:GetDescendants()) do
         if v:IsA("BillboardGui") then
@@ -71,10 +31,24 @@ local function getModelImage(model)
         if v:IsA("Texture") and v.Texture ~= "" then return v.Texture end
         if v:IsA("MeshPart") and v.TextureID ~= "" then return v.TextureID end
     end
-    return "rbxassetid://13495565986"
+    return "rbxassetid://13495565986" -- صورة بيضة ذهبية افتراضية
 end
 
--- جلب القائمة وترتيبها بالسعر
+-- القوة والترتيب
+local function getEggScore(model, name)
+    local valObj = model:FindFirstChild("Value") or model:FindFirstChild("Price") or model:FindFirstChildWhichIsA("NumberValue") or model:FindFirstChildWhichIsA("IntValue")
+    if valObj then return valObj.Value end
+    
+    local n = string.lower(name)
+    if n:find("mythic") or n:find("secret") or n:find("god") then return 1000000 end
+    if n:find("legendary") or n:find("divine") then return 500000 end
+    if n:find("epic") then return 100000 end
+    if n:find("rare") then return 50000 end
+    if n:find("uncommon") then return 10000 end
+    return 1000
+end
+
+-- جلب القائمة
 local function getEggsList()
     local eggs = {}
     local _, _, hrp = getChar()
@@ -87,61 +61,53 @@ local function getEggsList()
             local name = prompt.ObjectText
             if not name or name == "" then name = model.Name end
             
-            -- حساب السعر
-            local score = parseValue(name)
-            if score == 0 then
-                local valObj = model:FindFirstChild("Value") or model:FindFirstChild("Price") or model:FindFirstChildWhichIsA("NumberValue")
-                if valObj then score = valObj.Value end
-            end
-            -- إذا ما لقى سعر، يخمن من الاسم
-            if score == 0 then
-                local n = string.lower(name)
-                if n:find("mythic") or n:find("secret") then score = 1000000000
-                elseif n:find("legendary") then score = 500000000
-                elseif n:find("epic") then score = 100000000
-                else score = 1000 end
-            end
-            
             table.insert(eggs, {
                 model = model,
                 prompt = prompt,
                 pos = pos,
                 name = name,
                 dist = math.floor((pos - hrp.Position).Magnitude),
-                score = score,
+                score = getEggScore(model, name),
                 image = getModelImage(model)
             })
         end
     end
-    -- الترتيب من الأغلى للأرخص
     table.sort(eggs, function(a, b) return a.score > b.score end)
     return eggs
 end
 
--- السرقة (انتقال -> انتظار -> سرقة -> انتظار -> رجوع)
+-- السرقة (مع الانتظار للسيرفر)
 local function stealEgg(egg, callback)
     local _, hum, hrp = getChar()
     if not hum or not hrp or not egg.model.Parent then return end
     
     local originalCF = hrp.CFrame
+    
+    -- إيقاف السرعة العالية أثناء السرقة
     local wasSpeedOn = Config.SpeedEnabled
     Config.SpeedEnabled = false
     hum.WalkSpeed = 16
     
     task.spawn(function()
         pcall(function()
+            -- الانتقال للبيضة
             hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 3, 0))
-            task.wait(0.4) -- انتظار السيرفر
+            -- انتظار السيرفر يتقبل الموقع
+            task.wait(0.4)
+            -- السرقة
             fireproximityprompt(egg.prompt)
-            task.wait(0.4) -- انتظار السيرفر
+            -- انتظار السيرفر يسجل السرقة
+            task.wait(0.4)
+            -- الرجوع
             hrp.CFrame = originalCF
         end)
+        -- إرجاع السرعة
         Config.SpeedEnabled = wasSpeedOn
         if callback then callback() end
     end)
 end
 
--- 3. السرعة (BodyVelocity + Anti-Kick)
+-- السرعة الفيزيائية (تجاوز الحماية)
 local speedBodyVel = nil
 RunService.RenderStepped:Connect(function()
     local char, hum, hrp = getChar()
@@ -151,13 +117,13 @@ RunService.RenderStepped:Connect(function()
     end
 
     if Config.SpeedEnabled then
-        hum.WalkSpeed = 16 -- اللعبة تشوفك 16
+        hum.WalkSpeed = 16 -- نخلي سرعة المشي طبيعية عشان ما ينكشف
         
         if not speedBodyVel or speedBodyVel.Parent ~= hrp then
             if speedBodyVel then speedBodyVel:Destroy() end
             speedBodyVel = Instance.new("BodyVelocity")
             speedBodyVel.Parent = hrp
-            speedBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            speedBodyVel.MaxForce = Vector3.new(1e5, 0, 1e5)
             speedBodyVel.Velocity = Vector3.zero
         end
         
@@ -185,6 +151,7 @@ local function mk(cls, props, parent)
     return o
 end
 
+-- الألوان (أحمر + أزرق + سماوي)
 local colors = {
     bg = Color3.fromRGB(8, 8, 16),
     card = Color3.fromRGB(16, 16, 30),
@@ -199,6 +166,7 @@ local colors = {
 local uiParent = (gethui and gethui()) or game:GetService("CoreGui") or LP:WaitForChild("PlayerGui")
 local gui = mk("ScreenGui", {Name="DerekHub14", ResetOnSpawn=false, IgnoreGuiInset=true, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, uiParent)
 
+-- زر الفتح
 local toggleBtn = mk("TextButton", {
     Size=UDim2.fromOffset(60,60), Position=UDim2.new(0,20,0.5,-30),
     BackgroundColor3=colors.red, Text="D", TextColor3=colors.text,
@@ -207,6 +175,7 @@ local toggleBtn = mk("TextButton", {
 mk("UICorner",{CornerRadius=UDim.new(1,0)}, toggleBtn)
 mk("UIStroke", {Color=colors.cyan, Thickness=2}, toggleBtn)
 
+-- اللوحة
 local main = mk("Frame", {
     Size=UDim2.fromOffset(380, 500), Position=UDim2.new(0.5,-190,0.5,-250),
     BackgroundColor3=colors.bg, BorderSizePixel=0, Visible=false
@@ -215,14 +184,16 @@ mk("UICorner",{CornerRadius=UDim.new(0,16)}, main)
 local stroke = mk("UIStroke",{Color=colors.cyan, Thickness=1.5}, main)
 local grad = mk("UIGradient",{Color=ColorSequence.new{ColorSequenceKeypoint.new(0, colors.red), ColorSequenceKeypoint.new(1, colors.blue)}, Rotation=45}, stroke)
 
+-- شريط العنوان
 local title = mk("Frame", {Size=UDim2.new(1,0,0,50), BackgroundColor3=colors.card, BorderSizePixel=0}, main)
 mk("UICorner",{CornerRadius=UDim.new(0,16)}, title)
 mk("Frame", {Size=UDim2.new(1,0,0,20), Position=UDim2.new(0,0,1,-20), BackgroundColor3=colors.card, BorderSizePixel=0}, title)
-mk("TextLabel", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="Derek Hub | God Mode", Font=Enum.Font.GothamBold, TextSize=16, TextColor3=colors.text}, title)
+mk("TextLabel", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="Derek Hub | Ghost", Font=Enum.Font.GothamBold, TextSize=16, TextColor3=colors.text}, title)
 
 local closeBtn = mk("TextButton", {Size=UDim2.fromOffset(30,30), Position=UDim2.new(1,-40,0.5,-15), BackgroundColor3=colors.red, Text="✕", TextColor3=colors.text, Font=Enum.Font.GothamBold, BorderSizePixel=0}, title)
 mk("UICorner",{CornerRadius=UDim.new(0,8)}, closeBtn)
 
+-- التبويبات
 local tabBar = mk("Frame", {Size=UDim2.new(1,-24,0,35), Position=UDim2.new(0,12,0,60), BackgroundTransparency=1}, main)
 mk("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal, Padding=UDim.new(0,8)}, tabBar)
 
@@ -273,10 +244,7 @@ task.spawn(function()
                 
                 local rankText = "#"..i.." | "..egg.name
                 mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,12), BackgroundTransparency=1, Text=rankText, TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, TextXAlignment=Enum.TextXAlignment.Left, TextTruncate=Enum.TextTruncate.AtEnd}, row)
-                
-                -- عرض القيمة المنسقة
-                local formattedScore = formatValue(egg.score)
-                mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,36), BackgroundTransparency=1, Text="Value: $"..formattedScore.." | Dist: "..egg.dist, TextColor3=colors.cyan, Font=Enum.Font.GothamMedium, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, row)
+                mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,36), BackgroundTransparency=1, Text="Dist: "..egg.dist.." | Score: "..egg.score, TextColor3=colors.cyan, Font=Enum.Font.GothamMedium, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, row)
                 
                 local btn = mk("TextButton", {Size=UDim2.fromOffset(70,36), Position=UDim2.new(1,-80,0.5,-18), BackgroundColor3=colors.blue, Text="Steal", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, BorderSizePixel=0}, row)
                 mk("UICorner",{CornerRadius=UDim.new(0,8)}, btn)
@@ -323,7 +291,7 @@ mk("UICorner",{CornerRadius=UDim.new(1,0)}, sliderKnob)
 local draggingSlider = false
 local function updateSlider(x)
     local rel = math.clamp((x - sliderBG.AbsolutePosition.X) / sliderBG.AbsoluteSize.X, 0, 1)
-    local val = math.floor(1 + (450 - 1) * rel) -- الحد الأقصى 450
+    local val = math.floor(1 + (1000 - 1) * rel)
     sliderFill.Size = UDim2.new(rel, 0, 1, 0)
     sliderKnob.Position = UDim2.new(rel, -9, 0.5, -9)
     speedLabel.Text = "Speed: " .. val
@@ -403,4 +371,4 @@ UIS.InputChanged:Connect(function(i)
 end)
 UIS.InputEnded:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then drag2 = false end
-end)
+end)    
