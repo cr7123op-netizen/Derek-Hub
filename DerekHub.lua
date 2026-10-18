@@ -1,7 +1,8 @@
---[[ Derek Hub v12.0 — Titan Edition | Steal An Egg | Author: ALPHA ]]
+--[[ Derek Hub v13.0 — Cyberpunk Edition | Steal An Egg | Author: ALPHA ]]
 task.wait(1)
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -12,43 +13,38 @@ local Config = {
     SpeedValue = 16,
 }
 
--- ==========================================
--- ============ دوال مساعدة =============
--- ==========================================
+-- دوال أساسية
 local function getChar()
     local c = LP.Character
     return c, c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart")
 end
 
--- جلب صورة الموديل
+-- جلب صورة الحيوان/البيضة بذكاء
 local function getModelImage(model)
-    -- 1. Decal
-    local decal = model:FindFirstChildWhichIsA("Decal", true)
-    if decal and decal.Texture ~= "" then return decal.Texture end
-    -- 2. Texture
-    local tex = model:FindFirstChildWhichIsA("Texture", true)
-    if tex and tex.Texture ~= "" then return tex.Texture end
-    -- 3. MeshPart TextureID
-    for _, part in ipairs(model:GetDescendants()) do
-        if part:IsA("MeshPart") and part.TextureID ~= "" then
-            return part.TextureID
-        end
-        if part:IsA("ImageLabel") or part:IsA("ImageButton") then
-            if part.Image ~= "" then return part.Image end
-        end
+    -- البحث داخل الواجهات العائمة للعبة
+    for _, v in ipairs(model:GetDescendants()) do
+        if v:IsA("ImageLabel") and v.Image ~= "" then return v.Image end
+        if v:IsA("Decal") and v.Texture ~= "" then return v.Texture end
+        if v:IsA("Texture") and v.Texture ~= "" then return v.Texture end
+        if v:IsA("MeshPart") and v.TextureID ~= "" then return v.TextureID end
     end
     return "rbxassetid://13828748735" -- صورة افتراضية
 end
 
--- تحديد قوة البيضة من الاسم
-local function getRarityScore(name)
+-- تحديد القوة والسعر
+local function getEggScore(model, name)
+    -- 1. محاولة قراءة القيمة الحقيقية من اللعبة
+    local valObj = model:FindFirstChild("Value") or model:FindFirstChild("Price") or model:FindFirstChildWhichIsA("NumberValue") or model:FindFirstChildWhichIsA("IntValue")
+    if valObj then return valObj.Value end
+    
+    -- 2. إذا ما لقينا قيمة، نعتمد على الاسم
     local n = string.lower(name)
-    if n:find("mythic") or n:find("secret") or n:find("god") then return 100 end
-    if n:find("legendary") or n:find("divine") then return 80 end
-    if n:find("epic") then return 60 end
-    if n:find("rare") then return 40 end
-    if n:find("uncommon") then return 20 end
-    return 10
+    if n:find("mythic") or n:find("secret") or n:find("god") then return 1000000 end
+    if n:find("legendary") or n:find("divine") then return 500000 end
+    if n:find("epic") then return 100000 end
+    if n:find("rare") then return 50000 end
+    if n:find("uncommon") then return 10000 end
+    return 1000 -- Common
 end
 
 -- جلب القائمة وترتيبها من الأقوى للأضعف
@@ -64,54 +60,61 @@ local function getEggsList()
             local name = prompt.ObjectText
             if not name or name == "" then name = model.Name end
             
+            local score = getEggScore(model, name)
+            
             table.insert(eggs, {
                 model = model,
                 prompt = prompt,
                 pos = pos,
                 name = name,
                 dist = math.floor((pos - hrp.Position).Magnitude),
-                score = getRarityScore(name),
+                score = score,
                 image = getModelImage(model)
             })
         end
     end
-    -- ترتيب: الأقوى أولاً، ثم الأقرب
+    -- ترتيب تنازلي (الأقوى أولاً)
     table.sort(eggs, function(a, b)
-        if a.score == b.score then return a.dist < b.dist end
         return a.score > b.score
     end)
     return eggs
 end
 
--- السرقة الصحيحة: انتقل → انتظر → اسرق → ارجع
+-- السرقة الفورية
 local function stealEgg(egg, callback)
     local _, hum, hrp = getChar()
     if not hum or not hrp or not egg.model.Parent then return end
     
     local originalCF = hrp.CFrame
-    local originalSpeed = hum.WalkSpeed
+    local currentSpeed = hum.WalkSpeed
     
-    -- إخفاء السرعة العالية قبل السرقة (حماية)
+    -- إخفاء السرعة العالية لحظة السرقة (حماية)
     hum.WalkSpeed = 16
     
     task.spawn(function()
         pcall(function()
-            -- 1. الانتقال
             hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 2.5, 0))
-            -- 2. انتظار حتى يتفعل الـ prompt (المسافة تحت 10)
             task.wait(0.15)
-            -- 3. السرقة
             fireproximityprompt(egg.prompt)
-            -- 4. انتظار بسيط عشان السيرفر يسجل
             task.wait(0.15)
         end)
-        -- 5. الرجوع
         pcall(function() hrp.CFrame = originalCF end)
-        -- 6. إرجاع السرعة
-        if Config.SpeedEnabled and hum then hum.WalkSpeed = Config.SpeedValue else hum.WalkSpeed = originalSpeed end
+        
+        -- إرجاع السرعة
+        if Config.SpeedEnabled and hum then hum.WalkSpeed = Config.SpeedValue else hum.WalkSpeed = currentSpeed end
         if callback then callback() end
     end)
 end
+
+-- فرض السرعة (حل مشكلة اللعبة اللي ترجع السرعة)
+RunService.RenderStepped:Connect(function()
+    if Config.SpeedEnabled then
+        local _, hum = getChar()
+        if hum and hum.WalkSpeed ~= Config.SpeedValue then
+            hum.WalkSpeed = Config.SpeedValue
+        end
+    end
+end)
 
 -- ==========================================
 -- ============ واجهة المستخدم ============
@@ -123,72 +126,72 @@ local function mk(cls, props, parent)
     return o
 end
 
+-- الألوان الجديدة (أحمر + أزرق + سماوي)
 local colors = {
-    bg = Color3.fromRGB(10, 10, 14),
-    card = Color3.fromRGB(22, 22, 28),
-    accent = Color3.fromRGB(255, 40, 60),
-    accent2 = Color3.fromRGB(0, 220, 150),
+    bg = Color3.fromRGB(8, 8, 16),
+    card = Color3.fromRGB(16, 16, 30),
+    red = Color3.fromRGB(255, 30, 60),
+    cyan = Color3.fromRGB(0, 220, 255),
+    blue = Color3.fromRGB(50, 100, 255),
     text = Color3.fromRGB(255, 255, 255),
-    subtext = Color3.fromRGB(150, 150, 160),
-    off = Color3.fromRGB(45, 45, 55)
+    subtext = Color3.fromRGB(150, 150, 180),
+    off = Color3.fromRGB(40, 40, 60)
 }
 
 local uiParent = (gethui and gethui()) or game:GetService("CoreGui") or LP:WaitForChild("PlayerGui")
-local gui = mk("ScreenGui", {Name="DerekHub12", ResetOnSpawn=false, IgnoreGuiInset=true, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, uiParent)
+local gui = mk("ScreenGui", {Name="DerekHub13", ResetOnSpawn=false, IgnoreGuiInset=true, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, uiParent)
 
 -- زر الفتح
 local toggleBtn = mk("TextButton", {
     Size=UDim2.fromOffset(60,60), Position=UDim2.new(0,20,0.5,-30),
-    BackgroundColor3=colors.accent, Text="D", TextColor3=colors.text,
+    BackgroundColor3=colors.red, Text="D", TextColor3=colors.text,
     Font=Enum.Font.GothamBlack, TextSize=28, BorderSizePixel=0
 }, gui)
 mk("UICorner",{CornerRadius=UDim.new(1,0)}, toggleBtn)
-mk("UIStroke", {Color=colors.text, Thickness=2, Transparency=0.5}, toggleBtn)
+mk("UIStroke", {Color=colors.cyan, Thickness=2}, toggleBtn)
 
--- اللوحة
+-- اللوحة الرئيسية
 local main = mk("Frame", {
     Size=UDim2.fromOffset(380, 500), Position=UDim2.new(0.5,-190,0.5,-250),
     BackgroundColor3=colors.bg, BorderSizePixel=0, Visible=false
 }, gui)
 mk("UICorner",{CornerRadius=UDim.new(0,16)}, main)
-local stroke = mk("UIStroke",{Color=colors.accent, Thickness=1.5}, main)
-mk("UIGradient",{Color=ColorSequence.new{ColorSequenceKeypoint.new(0, colors.accent), ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 0, 255))}, Rotation=45}, stroke)
+local stroke = mk("UIStroke",{Color=colors.cyan, Thickness=1.5}, main)
+local grad = mk("UIGradient",{Color=ColorSequence.new{ColorSequenceKeypoint.new(0, colors.red), ColorSequenceKeypoint.new(1, colors.blue)}, Rotation=45}, stroke)
 
--- العنوان
+-- شريط العنوان
 local title = mk("Frame", {Size=UDim2.new(1,0,0,50), BackgroundColor3=colors.card, BorderSizePixel=0}, main)
 mk("UICorner",{CornerRadius=UDim.new(0,16)}, title)
 mk("Frame", {Size=UDim2.new(1,0,0,20), Position=UDim2.new(0,0,1,-20), BackgroundColor3=colors.card, BorderSizePixel=0}, title)
-mk("TextLabel", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="Derek Hub | Titan", Font=Enum.Font.GothamBold, TextSize=16, TextColor3=colors.text}, title)
+mk("TextLabel", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="Derek Hub | Cyberpunk", Font=Enum.Font.GothamBold, TextSize=16, TextColor3=colors.text}, title)
 
-local closeBtn = mk("TextButton", {Size=UDim2.fromOffset(30,30), Position=UDim2.new(1,-40,0.5,-15), BackgroundColor3=colors.off, Text="✕", TextColor3=colors.text, Font=Enum.Font.GothamBold, BorderSizePixel=0}, title)
+local closeBtn = mk("TextButton", {Size=UDim2.fromOffset(30,30), Position=UDim2.new(1,-40,0.5,-15), BackgroundColor3=colors.red, Text="✕", TextColor3=colors.text, Font=Enum.Font.GothamBold, BorderSizePixel=0}, title)
 mk("UICorner",{CornerRadius=UDim.new(0,8)}, closeBtn)
 
--- تبويبات
+-- التبويبات
 local tabBar = mk("Frame", {Size=UDim2.new(1,-24,0,35), Position=UDim2.new(0,12,0,60), BackgroundTransparency=1}, main)
 mk("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal, Padding=UDim.new(0,8)}, tabBar)
 
 local tabs, pages = {}, {}
-local function createTab(name)
-    local btn = mk("TextButton", {Size=UDim2.new(0,165,1,0), BackgroundColor3=colors.card, Text=name, TextColor3=colors.text, Font=Enum.Font.GothamMedium, TextSize=13, BorderSizePixel=0}, tabBar)
+local function createTab(name, isFirst)
+    local btn = mk("TextButton", {Size=UDim2.new(0,165,1,0), BackgroundColor3=isFirst and colors.red or colors.card, Text=name, TextColor3=colors.text, Font=Enum.Font.GothamMedium, TextSize=13, BorderSizePixel=0}, tabBar)
     mk("UICorner",{CornerRadius=UDim.new(0,10)}, btn)
     
-    local page = mk("ScrollingFrame", {Size=UDim2.new(1,-24,1,-110), Position=UDim2.new(0,12,0,105), BackgroundTransparency=1, BorderSizePixel=0, ScrollBarThickness=3, ScrollBarImageColor3=colors.accent, CanvasSize=UDim2.new(0,0,0,0), Visible=false}, main)
+    local page = mk("ScrollingFrame", {Size=UDim2.new(1,-24,1,-110), Position=UDim2.new(0,12,0,105), BackgroundTransparency=1, BorderSizePixel=0, ScrollBarThickness=3, ScrollBarImageColor3=colors.cyan, CanvasSize=UDim2.new(0,0,0,0), Visible=isFirst}, main)
     mk("UIListLayout", {Padding=UDim.new(0,8), SortOrder=Enum.SortOrder.LayoutOrder}, page)
     
     tabs[name] = btn; pages[name] = page
     btn.MouseButton1Click:Connect(function()
         for n, p in pairs(pages) do p.Visible = (n == name) end
         for n, b in pairs(tabs) do 
-            TweenService:Create(b, TweenInfo.new(0.2), {BackgroundColor3 = (n == name) and colors.accent or colors.card}):Play()
+            TweenService:Create(b, TweenInfo.new(0.2), {BackgroundColor3 = (n == name) and colors.red or colors.card}):Play()
         end
     end)
     return page
 end
 
-local eggsPage = createTab("Eggs (الأقوى)")
-local speedPage = createTab("Speed (السرعة)")
-tabs["Eggs (الأقوى)"].BackgroundColor3 = colors.accent
-pages["Eggs (الأقوى)"].Visible = true
+local eggsPage = createTab("Eggs (الأقوى)", true)
+local speedPage = createTab("Speed (السرعة)", false)
 
 -- ===== تبويب البيض =====
 local eggElements = {}
@@ -208,31 +211,32 @@ task.spawn(function()
             for i, egg in ipairs(eggs) do
                 local row = mk("Frame", {Size=UDim2.new(1,-8,0,70), BackgroundColor3=colors.card}, pages["Eggs (الأقوى)"])
                 mk("UICorner",{CornerRadius=UDim.new(0,10)}, row)
+                mk("UIStroke",{Color=colors.blue, Thickness=1, Transparency=0.5}, row)
                 
                 -- صورة
                 local img = mk("ImageLabel", {Size=UDim2.fromOffset(50,50), Position=UDim2.new(0,10,0.5,-25), BackgroundColor3=colors.bg, Image=egg.image, ScaleType=Enum.ScaleType.Crop}, row)
                 mk("UICorner",{CornerRadius=UDim.new(0,8)}, img)
-                mk("UIStroke",{Color=colors.accent, Thickness=1}, img)
+                mk("UIStroke",{Color=colors.cyan, Thickness=1.5}, img)
                 
                 -- الاسم والترتيب
                 local rankText = "#"..i.." | "..egg.name
                 mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,12), BackgroundTransparency=1, Text=rankText, TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, TextXAlignment=Enum.TextXAlignment.Left, TextTruncate=Enum.TextTruncate.AtEnd}, row)
-                mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,36), BackgroundTransparency=1, Text="Dist: "..egg.dist.." | Score: "..egg.score, TextColor3=colors.accent2, Font=Enum.Font.GothamMedium, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, row)
+                mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,36), BackgroundTransparency=1, Text="Dist: "..egg.dist.." | Score: "..egg.score, TextColor3=colors.cyan, Font=Enum.Font.GothamMedium, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, row)
                 
                 -- زر Steal
-                local btn = mk("TextButton", {Size=UDim2.fromOffset(70,36), Position=UDim2.new(1,-80,0.5,-18), BackgroundColor3=colors.accent, Text="Steal", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, BorderSizePixel=0}, row)
+                local btn = mk("TextButton", {Size=UDim2.fromOffset(70,36), Position=UDim2.new(1,-80,0.5,-18), BackgroundColor3=colors.blue, Text="Steal", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, BorderSizePixel=0}, row)
                 mk("UICorner",{CornerRadius=UDim.new(0,8)}, btn)
                 
                 btn.MouseButton1Click:Connect(function()
                     btn.Text = "Grabbing..."
-                    btn.BackgroundColor3 = colors.accent2
+                    btn.BackgroundColor3 = colors.red
                     stealEgg(egg, function()
                         if btn and btn.Parent then
                             btn.Text = "Done ✓"
                             task.wait(1)
                             if btn and btn.Parent then
                                 btn.Text = "Steal"
-                                btn.BackgroundColor3 = colors.accent
+                                btn.BackgroundColor3 = colors.blue
                             end
                         end
                     end)
@@ -248,17 +252,16 @@ end)
 -- ===== تبويب السرعة =====
 local speedRow = mk("Frame", {Size=UDim2.new(1,-8,0,60), BackgroundColor3=colors.card}, pages["Speed (السرعة)"])
 mk("UICorner",{CornerRadius=UDim.new(0,10)}, speedRow)
+mk("UIStroke",{Color=colors.blue, Thickness=1, Transparency=0.5}, speedRow)
 
 local speedLabel = mk("TextLabel", {Size=UDim2.new(1,-20,0,20), Position=UDim2.new(0,12,0,10), BackgroundTransparency=1, Text="Speed: 16", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=14, TextXAlignment=Enum.TextXAlignment.Left}, speedRow)
 
--- زر تفعيل
 local speedToggle = mk("TextButton", {Size=UDim2.fromOffset(80,30), Position=UDim2.new(1,-92,0,8), BackgroundColor3=colors.off, Text="OFF", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, BorderSizePixel=0}, speedRow)
 mk("UICorner",{CornerRadius=UDim.new(0,8)}, speedToggle)
 
--- شريط السلايدر
 local sliderBG = mk("Frame", {Size=UDim2.new(1,-24,0,8), Position=UDim2.new(0,12,0,42), BackgroundColor3=colors.off, BorderSizePixel=0}, speedRow)
 mk("UICorner",{CornerRadius=UDim.new(1,0)}, sliderBG)
-local sliderFill = mk("Frame", {Size=UDim2.new(0,0,1,0), BackgroundColor3=colors.accent, BorderSizePixel=0}, sliderBG)
+local sliderFill = mk("Frame", {Size=UDim2.new(0,0,1,0), BackgroundColor3=colors.cyan, BorderSizePixel=0}, sliderBG)
 mk("UICorner",{CornerRadius=UDim.new(1,0)}, sliderFill)
 local sliderKnob = mk("Frame", {Size=UDim2.fromOffset(18,18), Position=UDim2.new(0,-9,0.5,-9), BackgroundColor3=colors.text, BorderSizePixel=0}, sliderBG)
 mk("UICorner",{CornerRadius=UDim.new(1,0)}, sliderKnob)
@@ -271,10 +274,6 @@ local function updateSlider(x)
     sliderKnob.Position = UDim2.new(rel, -9, 0.5, -9)
     speedLabel.Text = "Speed: " .. val
     Config.SpeedValue = val
-    if Config.SpeedEnabled then
-        local _, hum = getChar()
-        if hum then hum.WalkSpeed = val end
-    end
 end
 
 sliderBG.InputBegan:Connect(function(input)
@@ -294,28 +293,16 @@ UIS.InputEnded:Connect(function(input)
     end
 end)
 
--- تفعيل/تعطيل السرعة
 speedToggle.MouseButton1Click:Connect(function()
     Config.SpeedEnabled = not Config.SpeedEnabled
     if Config.SpeedEnabled then
         speedToggle.Text = "ON"
-        speedToggle.BackgroundColor3 = colors.accent2
-        local _, hum = getChar()
-        if hum then hum.WalkSpeed = Config.SpeedValue end
+        speedToggle.BackgroundColor3 = colors.red
     else
         speedToggle.Text = "OFF"
         speedToggle.BackgroundColor3 = colors.off
         local _, hum = getChar()
         if hum then hum.WalkSpeed = 16 end
-    end
-end)
-
--- حماية: تحديث السرعة عند تغير الشخصية
-LP.CharacterAdded:Connect(function()
-    task.wait(1)
-    if Config.SpeedEnabled then
-        local _, hum = getChar()
-        if hum then hum.WalkSpeed = Config.SpeedValue end
     end
 end)
 
