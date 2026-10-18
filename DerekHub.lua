@@ -1,96 +1,77 @@
---[[ Derek Hub v17.0 — Safe Edition | Steal An Egg | Author: ALPHA ]]
-task.wait(2)
-
+--[[ Ouroboros | Steal An Egg | Open Source ]]
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local UIS = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local LP = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local LocalPlayer = Players.LocalPlayer
 
-local Config = {
-    AutoSteal = false,
-    SpeedEnabled = false,
-    SpeedValue = 16,
-}
+-- إعدادات
+local AutoSteal = false
+local AutoHatch = false
+local AutoButterfly = false
+local Speed = 16
+local Fly = false
 
+-- دوال مساعدة
 local function getChar()
-    local c = LP.Character
-    return c, c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart")
+    local char = LocalPlayer.Character
+    return char, char and char:FindFirstChild("Humanoid"), char and char:FindFirstChild("HumanoidRootPart")
 end
 
-local function getImage(model)
-    for _, v in ipairs(model:GetDescendants()) do
-        if v:IsA("Decal") and v.Texture ~= "" then return v.Texture end
-        if v:IsA("Texture") and v.Texture ~= "" then return v.Texture end
-        if v:IsA("MeshPart") and v.TextureID ~= "" then return v.TextureID end
-    end
-    return "rbxassetid://13495565986"
-end
-
-local function getEggs()
-    local eggs = {}
-    local _, _, hrp = getChar()
-    if not hrp then return eggs end
-
-    for _, prompt in ipairs(Workspace:GetDescendants()) do
-        if prompt:IsA("ProximityPrompt") and string.lower(prompt.ActionText) == "steal" then
-            local model = prompt.Parent
-            local pos = (model:IsA("Model") and model:GetPivot().Position) or model.Position
-            local name = prompt.ObjectText ~= "" and prompt.ObjectText or model.Name
-            
-            local score = 10
-            local n = string.lower(name)
-            if n:find("secret") or n:find("mythic") then score = 100
-            elseif n:find("legendary") then score = 80
-            elseif n:find("epic") then score = 60
-            elseif n:find("rare") then score = 40 end
-
-            table.insert(eggs, {
-                model = model, prompt = prompt, pos = pos, name = name,
-                image = getImage(model), score = score, dist = math.floor((pos - hrp.Position).Magnitude)
-            })
+-- تعطيل الحماية (Anti-Cheat Bypass)
+task.spawn(function()
+    if getconnections then
+        for _, conn in pairs(getconnections(LocalPlayer.CharacterAdded)) do
+            local ok, src = pcall(debug.info, conn.Function, "s")
+            if ok and type(src) == "string" and (src:find("Anti") or src:find("Kick") or src:find("Detect")) then
+                pcall(function() conn:Disconnect() end)
+            end
         end
     end
-    table.sort(eggs, function(a,b) return a.score > b.score end)
+    -- منع الطرد
+    if hookfunction and getrawmetatable then
+        local mt = getrawmetatable(game)
+        local oldNamecall = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if method == "Kick" then return nil end
+            return oldNamecall(self, ...)
+        end)
+        setreadonly(mt, true)
+    end
+end)
+
+-- جلب البيض
+local function getEggs()
+    local eggs = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and string.lower(obj.ActionText) == "steal" then
+            local model = obj.Parent
+            local pos = model:IsA("Model") and model:GetPivot().Position or model.Position
+            table.insert(eggs, {model = model, prompt = obj, pos = pos, name = model.Name})
+        end
+    end
     return eggs
 end
 
-local function stealEgg(egg, btn)
-    local _, hum, hrp = getChar()
+-- السرقة
+local function stealEgg(egg)
+    local char, hum, hrp = getChar()
     if not hum or not hrp or not egg.model.Parent then return end
     
-    local originalCF = hrp.CFrame
-    local wasSpeedOn = Config.SpeedEnabled
-    Config.SpeedEnabled = false
-    hum.WalkSpeed = 16
-    
-    if btn then
-        btn.Text = "..."
-        btn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-    end
-    
-    task.spawn(function()
-        pcall(function()
-            hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 3, 0))
-            task.wait(0.3)
-            fireproximityprompt(egg.prompt)
-            task.wait(0.3)
-            hrp.CFrame = originalCF
-        end)
-        Config.SpeedEnabled = wasSpeedOn
-        
-        if btn and btn.Parent then
-            btn.Text = "Done ✓"
-            task.wait(0.5)
-            if btn.Parent then
-                btn.Text = "Steal"
-                btn.BackgroundColor3 = Color3.fromRGB(230, 0, 40)
-            end
-        end
+    local oldCF = hrp.CFrame
+    pcall(function()
+        hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 3, 0))
+        task.wait(0.35)
+        fireproximityprompt(egg.prompt)
+        task.wait(0.35)
+        hrp.CFrame = oldCF
     end)
 end
 
+-- واجهة
 local function mk(cls, props, parent)
     local o = Instance.new(cls)
     for k,v in pairs(props or {}) do o[k] = v end
@@ -98,175 +79,35 @@ local function mk(cls, props, parent)
     return o
 end
 
-local clr = {
-    bg = Color3.fromRGB(10, 5, 8),
-    panel = Color3.fromRGB(20, 10, 14),
-    accent = Color3.fromRGB(230, 0, 40),
-    text = Color3.fromRGB(255, 255, 255),
-    subtext = Color3.fromRGB(160, 140, 145),
-    off = Color3.fromRGB(40, 20, 25)
-}
+local gui = mk("ScreenGui", {Name="Ouroboros", ResetOnSpawn=false}, LocalPlayer:WaitForChild("PlayerGui"))
 
--- الحماية: نستخدم PlayerGui العادي عشان ما ينطرد
-local uiParent = LP:WaitForChild("PlayerGui")
-local gui = mk("ScreenGui", {Name="DerekHub", ResetOnSpawn=false, IgnoreGuiInset=true, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, uiParent)
+local btn = mk("TextButton", {Size=UDim2.fromOffset(50,50), Position=UDim2.new(0,20,0.5,0), BackgroundColor3=Color3.fromRGB(255,30,30), Text="O", TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBlack, TextSize=24}, gui)
+mk("UICorner",{CornerRadius=UDim.new(1,0)}, btn)
 
--- زر الفتح (D)
-local toggleBtn = mk("TextButton", {
-    Size=UDim2.fromOffset(60,60), Position=UDim2.new(0,20,0.5,-30),
-    BackgroundColor3=clr.accent, Text="D", TextColor3=clr.text,
-    Font=Enum.Font.GothamBlack, TextSize=32, BorderSizePixel=0
-}, gui)
-mk("UICorner",{CornerRadius=UDim.new(1,0)}, toggleBtn)
-mk("UIStroke", {Color=clr.text, Thickness=2, Transparency=0.3}, toggleBtn)
-
--- النافذة
-local main = mk("Frame", {
-    Size=UDim2.fromOffset(620, 420), Position=UDim2.new(0.5,-310,0.5,-210),
-    BackgroundColor3=clr.bg, BorderSizePixel=0, Visible=false
-}, gui)
+local main = mk("Frame", {Size=UDim2.fromOffset(300,400), Position=UDim2.new(0.5,-150,0.5,-200), BackgroundColor3=Color3.fromRGB(20,20,25), Visible=false}, gui)
 mk("UICorner",{CornerRadius=UDim.new(0,10)}, main)
-local stroke = mk("UIStroke",{Color=clr.accent, Thickness=1.5, Transparency=0.2}, main)
 
--- شريط العنوان
-local topBar = mk("Frame", {Size=UDim2.new(1,0,0,40), BackgroundColor3=clr.panel, BorderSizePixel=0}, main)
-mk("UICorner",{CornerRadius=UDim.new(0,10)}, topBar)
-mk("Frame", {Size=UDim2.new(1,0,0,15), Position=UDim2.new(0,0,1,-15), BackgroundColor3=clr.panel, BorderSizePixel=0}, topBar)
+local close = mk("TextButton", {Size=UDim2.fromOffset(30,30), Position=UDim2.new(1,-35,0,5), BackgroundColor3=Color3.fromRGB(255,30,30), Text="X", TextColor3=Color3.new(1,1,1)}, main)
+mk("UICorner",{CornerRadius=UDim.new(0,6)}, close)
 
-mk("TextLabel", {Size=UDim2.new(0,100,1,0), Position=UDim2.new(0,15,0,0), BackgroundTransparency=1, Text="Derek", TextColor3=clr.accent, Font=Enum.Font.GothamBlack, TextSize=16, TextXAlignment=Enum.TextXAlignment.Left}, topBar)
-mk("TextLabel", {Size=UDim2.new(0,100,1,0), Position=UDim2.new(0,100,0,0), BackgroundTransparency=1, Text="V: 17.0", TextColor3=clr.subtext, Font=Enum.Font.Gotham, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, topBar)
+local eggsList = mk("ScrollingFrame", {Size=UDim2.new(1,-10,1,-50), Position=UDim2.new(0,5,0,40), BackgroundTransparency=1, CanvasSize=UDim2.new(0,0,0,0)}, main)
+mk("UIListLayout", {Padding=UDim.new(0,5)}, eggsList)
 
-local closeBtn = mk("TextButton", {Size=UDim2.fromOffset(30,30), Position=UDim2.new(1,-35,0.5,-15), BackgroundColor3=clr.off, Text="✕", TextColor3=clr.text, Font=Enum.Font.GothamBold, BorderSizePixel=0}, topBar)
-mk("UICorner",{CornerRadius=UDim.new(0,6)}, closeBtn)
+btn.MouseButton1Click:Connect(function() main.Visible = not main.Visible end)
+close.MouseButton1Click:Connect(function() main.Visible = false end)
 
--- الشريط الجانبي
-local sidebar = mk("Frame", {Size=UDim2.fromOffset(140, 370), Position=UDim2.new(0,10,0,50), BackgroundColor3=clr.panel, BorderSizePixel=0}, main)
-mk("UICorner",{CornerRadius=UDim.new(0,8)}, sidebar)
-mk("UIListLayout", {Padding=UDim.new(0,5), SortOrder=Enum.SortOrder.LayoutOrder}, sidebar)
-mk("UIPadding", {PaddingTop=UDim.new(0,10)}, sidebar)
-
-local pages = {}
-local tabs = {}
-local function createSideTab(name, icon, isFirst)
-    local btn = mk("TextButton", {Size=UDim2.new(1,-10,0,35), BackgroundColor3=isFirst and clr.accent or clr.panel, Text="   "..icon.."  "..name, TextColor3=clr.text, Font=Enum.Font.GothamMedium, TextSize=13, BorderSizePixel=0, TextXAlignment=Enum.TextXAlignment.Left}, sidebar)
-    mk("UICorner",{CornerRadius=UDim.new(0,6)}, btn)
-    
-    local page = mk("Frame", {Size=UDim2.new(0, 450, 0, 370), Position=UDim2.new(0, 160, 0, 50), BackgroundTransparency=1, Visible=isFirst}, main)
-    
-    tabs[name] = btn; pages[name] = page
-    
-    btn.MouseButton1Click:Connect(function()
-        for n, p in pairs(pages) do p.Visible = (n == name) end
-        for n, b in pairs(tabs) do 
-            TweenService:Create(b, TweenInfo.new(0.2), {BackgroundColor3 = (n == name) and clr.accent or clr.panel}):Play()
-        end
-    end)
-    return page
-end
-
-local mainPage = createSideTab("Main", "🏠", true)
-local autoPage = createSideTab("Automation", "⚙️", false)
-
-local leftPanel = mk("Frame", {Size=UDim2.new(0.5, -5, 1, 0), Position=UDim2.new(0, 0, 0, 0), BackgroundColor3=clr.panel, BorderSizePixel=0}, mainPage)
-mk("UICorner",{CornerRadius=UDim.new(0,8)}, leftPanel)
-mk("TextLabel", {Size=UDim2.new(1,-20,0,30), Position=UDim2.new(0,10,0,10), BackgroundTransparency=1, Text="Steal Eggs", TextColor3=clr.text, Font=Enum.Font.GothamBold, TextSize=14, TextXAlignment=Enum.TextXAlignment.Left}, leftPanel)
-
-local rightPanel = mk("Frame", {Size=UDim2.new(0.5, -5, 1, 0), Position=UDim2.new(0.5, 5, 0, 0), BackgroundColor3=clr.panel, BorderSizePixel=0}, mainPage)
-mk("UICorner",{CornerRadius=UDim.new(0,8)}, rightPanel)
-mk("TextLabel", {Size=UDim2.new(1,-20,0,30), Position=UDim2.new(0,10,0,10), BackgroundTransparency=1, Text="Defense", TextColor3=clr.text, Font=Enum.Font.GothamBold, TextSize=14, TextXAlignment=Enum.TextXAlignment.Left}, rightPanel)
-
-local eggScroll = mk("ScrollingFrame", {Size=UDim2.new(1,-10,1,-50), Position=UDim2.new(0,5,0,45), BackgroundTransparency=1, ScrollBarThickness=2, ScrollBarImageColor3=clr.accent, CanvasSize=UDim2.new(0,0,0,0)}, leftPanel)
-mk("UIListLayout", {Padding=UDim.new(0,5)}, eggScroll)
-
-local function updateEggList()
-    for _, v in ipairs(eggScroll:GetChildren()) do if v:IsA("Frame") then v:Destroy() end end
-    local eggs = getEggs()
-    for i, egg in ipairs(eggs) do
-        local row = mk("Frame", {Size=UDim2.new(1,-5,0,50), BackgroundColor3=clr.bg}, eggScroll)
-        mk("UICorner",{CornerRadius=UDim.new(0,6)}, row)
-        
-        local img = mk("ImageLabel", {Size=UDim2.fromOffset(35,35), Position=UDim2.new(0,5,0.5,-17), BackgroundColor3=clr.panel, Image=egg.image}, row)
-        mk("UICorner",{CornerRadius=UDim.new(0,4)}, img)
-        
-        mk("TextLabel", {Size=UDim2.new(0.5,0,0,15), Position=UDim2.new(0,45,0,8), BackgroundTransparency=1, Text="# "..i.." "..egg.name, TextColor3=clr.text, Font=Enum.Font.GothamBold, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, TextTruncate=Enum.TextTruncate.AtEnd}, row)
-        mk("TextLabel", {Size=UDim2.new(0.5,0,0,15), Position=UDim2.new(0,45,0,25), BackgroundTransparency=1, Text="Dist: "..egg.dist, TextColor3=clr.accent, Font=Enum.Font.Gotham, TextSize=10, TextXAlignment=Enum.TextXAlignment.Left}, row)
-        
-        local btn = mk("TextButton", {Size=UDim2.fromOffset(60,25), Position=UDim2.new(1,-65,0.5,-12), BackgroundColor3=clr.accent, Text="Steal", TextColor3=clr.text, Font=Enum.Font.GothamBold, TextSize=11, BorderSizePixel=0}, row)
-        mk("UICorner",{CornerRadius=UDim.new(0,4)}, btn)
-        btn.MouseButton1Click:Connect(function() stealEgg(egg, btn) end)
-    end
-end
-
-task.spawn(function() 
-    while task.wait(2) do 
-        if main.Visible and pages["Main"].Visible then 
-            pcall(updateEggList) 
-        end 
-    end 
-end)
-
--- أزرار الدفاع
-local function addDefenseToggle(text, y)
-    mk("TextLabel", {Size=UDim2.new(1,-60,0,25), Position=UDim2.new(0,10,0,y), BackgroundTransparency=1, Text=text, TextColor3=clr.text, Font=Enum.Font.Gotham, TextSize=12, TextXAlignment=Enum.TextXAlignment.Left}, rightPanel)
-    local sw = mk("Frame", {Size=UDim2.fromOffset(35,18), Position=UDim2.new(1,-45,0,y+3), BackgroundColor3=clr.off}, rightPanel)
-    mk("UICorner",{CornerRadius=UDim.new(1,0)}, sw)
-    local knob = mk("Frame", {Size=UDim2.fromOffset(14,14), Position=UDim2.new(0,2,0.5,-7), BackgroundColor3=clr.text}, sw)
-    mk("UICorner",{CornerRadius=UDim.new(1,0)}, knob)
-    local state = false
-    local btn = mk("TextButton", {Size=UDim2.new(1,-10,0,25), Position=UDim2.new(0,5,0,y), BackgroundTransparency=1, Text=""}, rightPanel)
-    btn.MouseButton1Click:Connect(function()
-        state = not state
-        TweenService:Create(sw, TweenInfo.new(0.15), {BackgroundColor3 = state and clr.accent or clr.off}):Play()
-        TweenService:Create(knob, TweenInfo.new(0.15), {Position = UDim2.new(0, state and 19 or 2, 0.5, -7)}):Play()
-    end)
-end
-
-addDefenseToggle("Bat Kill Aura", 10)
-addDefenseToggle("Auto Equip Bat", 40)
-addDefenseToggle("Tool Swap", 70)
-addDefenseToggle("Anti-Hit", 100)
-addDefenseToggle("Anti-Trap", 130)
-
--- صفحة Automation
-local function addAutoToggle(parent, text, y, callback)
-    local row = mk("Frame", {Size=UDim2.new(1,-10,0,35), Position=UDim2.new(0,5,0,y), BackgroundColor3=clr.panel}, parent)
-    mk("UICorner",{CornerRadius=UDim.new(0,6)}, row)
-    mk("TextLabel", {Size=UDim2.new(1,-50,1,0), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, Text=text, TextColor3=clr.text, Font=Enum.Font.GothamMedium, TextSize=12, TextXAlignment=Enum.TextXAlignment.Left}, row)
-    
-    local sw = mk("Frame", {Size=UDim2.fromOffset(35,18), Position=UDim2.new(1,-45,0.5,-9), BackgroundColor3=clr.off}, row)
-    mk("UICorner",{CornerRadius=UDim.new(1,0)}, sw)
-    local knob = mk("Frame", {Size=UDim2.fromOffset(14,14), Position=UDim2.new(0,2,0.5,-7), BackgroundColor3=clr.text}, sw)
-    mk("UICorner",{CornerRadius=UDim.new(1,0)}, knob)
-    
-    local state = false
-    local btn = mk("TextButton", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text=""}, row)
-    btn.MouseButton1Click:Connect(function()
-        state = not state
-        TweenService:Create(sw, TweenInfo.new(0.15), {BackgroundColor3 = state and clr.accent or clr.off}):Play()
-        TweenService:Create(knob, TweenInfo.new(0.15), {Position = UDim2.new(0, state and 19 or 2, 0.5, -7)}):Play()
-        if callback then callback(state) end
-    end)
-end
-
-addAutoToggle(autoPage, "Auto Steal", 10, function(v) Config.AutoSteal = v end)
-
--- وظائف خلفية
+-- تحديث القائمة
 task.spawn(function()
     while task.wait(1) do
-        if Config.AutoSteal and main.Visible then
+        if main.Visible then
+            for _, v in ipairs(eggsList:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
             local eggs = getEggs()
-            if #eggs > 0 then stealEgg(eggs[1]) end
+            for i, egg in ipairs(eggs) do
+                local b = mk("TextButton", {Size=UDim2.new(1,0,0,40), BackgroundColor3=Color3.fromRGB(30,30,35), Text=egg.name, TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=12}, eggsList)
+                mk("UICorner",{CornerRadius=UDim.new(0,6)}, b)
+                b.MouseButton1Click:Connect(function() stealEgg(egg) end)
+            end
+            eggsList.CanvasSize = UDim2.new(0,0,0, #eggs * 45)
         end
     end
 end)
-
--- فتح/قفل
-local isOpen = false
-toggleBtn.MouseButton1Click:Connect(function() isOpen = not isOpen; main.Visible = isOpen end)
-closeBtn.MouseButton1Click:Connect(function() isOpen = false; main.Visible = false end)
-
--- سحب
-local drag, start, pos
-topBar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then drag = true; start = i.Position; pos = main.Position end end)
-UIS.InputChanged:Connect(function(i) if drag and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then local d = i.Position - start; main.Position = UDim2.new(pos.X.Scale, pos.X.Offset + d.X, pos.Y.Scale, pos.Y.Offset + d.Y) end end)
-UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end end)
