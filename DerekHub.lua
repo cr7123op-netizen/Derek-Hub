@@ -1,189 +1,183 @@
---[[ Derek Hub v25.1 — Clean Extended | Steal An Egg | Author: ALPHA ]]
-task.wait(2)
+--[[ Derek Hub v14.5 — God Mode | Steal An Egg | Author: ALPHA ]]
+task.wait(1)
 
-local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
-local Workspace         = game:GetService("Workspace")
-local Lighting          = game:GetService("Lighting")
-local UIS               = game:GetService("UserInputService")
-local Tween             = game:GetService("TweenService")
-local VirtualUser       = game:GetService("VirtualUser")
-local LP                = Players.LocalPlayer
-
-local State = {
-    Stats = { EggsStolen = 0, Hatches = 0, SessionStart = tick() },
-    Logs = {}
-}
-
-local function Log(msg, tag)
-    tag = tag or "INFO"
-    local entry = "["..os.date("%H:%M:%S").."] ["..tag.."] "..msg
-    table.insert(State.Logs, entry)
-    if #State.Logs > 200 then table.remove(State.Logs, 1) end
-end
-Log("Initializing Derek Hub v25.1", "SYSTEM")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local LP = Players.LocalPlayer
 
 local Config = {
-    Farm = { AutoSteal = false, AutoHatch = false, SafeMode = true, StealDelay = 0.4 },
-    Movement = { SpeedEnabled = false, WalkSpeed = 16, FlyEnabled = false, FlySpeed = 60, Noclip = false, InfiniteJump = false },
-    Visual = { ESP_Eggs = false, Fullbright = false },
-    Misc = { AntiAFK = true }
+    SpeedEnabled = false,
+    SpeedValue = 16,
 }
 
-local function GetChar()
+-- 1. حماية ضد الطرد (Anti-Kick)
+pcall(function()
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if method == "Kick" then
+            return nil -- يمنع الطرد
+        end
+        return oldNamecall(self, ...)
+    end)
+    setreadonly(mt, true)
+end)
+
+-- 2. دوال مساعدة
+local function getChar()
     local c = LP.Character
     return c, c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart")
 end
 
-local function GetEggs()
-    local list = {}
-    local _, _, hrp = GetChar()
-    if not hrp then return list end
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") and string.lower(obj.ActionText) == "steal" then
-            local model = obj.Parent
-            local pos = (model:IsA("Model") and model:GetPivot().Position) or model.Position
-            local name = obj.ObjectText ~= "" and obj.ObjectText or model.Name
-            local score = 10
-            local lower = string.lower(name)
-            if lower:find("secret") or lower:find("mythic") then score = 1000
-            elseif lower:find("legendary") then score = 800
-            elseif lower:find("epic") then score = 600
-            elseif lower:find("rare") then score = 400 end
-            table.insert(list, { model = model, prompt = obj, pos = pos, name = name, score = score, dist = math.floor((pos - hrp.Position).Magnitude) })
-        end
+-- تحويل القيمة النصية (مثل 1.5B) إلى رقم
+local function parseValue(text)
+    if not text then return 0 end
+    text = string.upper(text)
+    local num, suffix = text:match("%$([%d%.]+)([KMBT]?)")
+    if num then
+        local n = tonumber(num)
+        if suffix == "K" then return n * 1000
+        elseif suffix == "M" then return n * 1000000
+        elseif suffix == "B" then return n * 1000000000
+        elseif suffix == "T" then return n * 1000000000000
+        else return n end
     end
-    table.sort(list, function(a, b) return a.score > b.score end)
-    return list
+    return 0
 end
 
-local function StealEgg(egg, callback)
-    local _, hum, hrp = GetChar()
+-- تنسيق الرقم للعرض (مثل 1.5B)
+local function formatValue(val)
+    if val >= 1000000000000 then return string.format("%.1fT", val/1000000000000)
+    elseif val >= 1000000000 then return string.format("%.1fB", val/1000000000)
+    elseif val >= 1000000 then return string.format("%.1fM", val/1000000)
+    elseif val >= 1000 then return string.format("%.1fK", val/1000)
+    else return tostring(val) end
+end
+
+-- جلب الصورة
+local function getModelImage(model)
+    for _, v in ipairs(model:GetDescendants()) do
+        if v:IsA("BillboardGui") then
+            local img = v:FindFirstChildWhichIsA("ImageLabel", true)
+            if img and img.Image ~= "" then return img.Image end
+        end
+        if v:IsA("ImageLabel") and v.Image ~= "" then return v.Image end
+        if v:IsA("Decal") and v.Texture ~= "" then return v.Texture end
+        if v:IsA("Texture") and v.Texture ~= "" then return v.Texture end
+        if v:IsA("MeshPart") and v.TextureID ~= "" then return v.TextureID end
+    end
+    return "rbxassetid://13495565986"
+end
+
+-- جلب القائمة وترتيبها بالسعر
+local function getEggsList()
+    local eggs = {}
+    local _, _, hrp = getChar()
+    if not hrp then return eggs end
+
+    for _, prompt in ipairs(Workspace:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") and string.lower(prompt.ActionText) == "steal" then
+            local model = prompt.Parent
+            local pos = (model:IsA("Model") and model:GetPivot().Position) or model.Position
+            local name = prompt.ObjectText
+            if not name or name == "" then name = model.Name end
+            
+            -- حساب السعر
+            local score = parseValue(name)
+            if score == 0 then
+                local valObj = model:FindFirstChild("Value") or model:FindFirstChild("Price") or model:FindFirstChildWhichIsA("NumberValue")
+                if valObj then score = valObj.Value end
+            end
+            -- إذا ما لقى سعر، يخمن من الاسم
+            if score == 0 then
+                local n = string.lower(name)
+                if n:find("mythic") or n:find("secret") then score = 1000000000
+                elseif n:find("legendary") then score = 500000000
+                elseif n:find("epic") then score = 100000000
+                else score = 1000 end
+            end
+            
+            table.insert(eggs, {
+                model = model,
+                prompt = prompt,
+                pos = pos,
+                name = name,
+                dist = math.floor((pos - hrp.Position).Magnitude),
+                score = score,
+                image = getModelImage(model)
+            })
+        end
+    end
+    -- الترتيب من الأغلى للأرخص
+    table.sort(eggs, function(a, b) return a.score > b.score end)
+    return eggs
+end
+
+-- السرقة (انتقال -> انتظار -> سرقة -> انتظار -> رجوع)
+local function stealEgg(egg, callback)
+    local _, hum, hrp = getChar()
     if not hum or not hrp or not egg.model.Parent then return end
-    local oldCF = hrp.CFrame
-    local oldSpd = hum.WalkSpeed
+    
+    local originalCF = hrp.CFrame
+    local wasSpeedOn = Config.SpeedEnabled
+    Config.SpeedEnabled = false
     hum.WalkSpeed = 16
+    
     task.spawn(function()
         pcall(function()
-            hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 2.5, 0))
-            task.wait(Config.Farm.SafeMode and 0.35 or 0.08)
+            hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 3, 0))
+            task.wait(0.4) -- انتظار السيرفر
             fireproximityprompt(egg.prompt)
-            State.Stats.EggsStolen = State.Stats.EggsStolen + 1
-            task.wait(Config.Farm.SafeMode and 0.35 or 0.08)
-            hrp.CFrame = oldCF
+            task.wait(0.4) -- انتظار السيرفر
+            hrp.CFrame = originalCF
         end)
-        hum.WalkSpeed = Config.Movement.SpeedEnabled and Config.Movement.WalkSpeed or oldSpd
-        if callback then pcall(callback) end
+        Config.SpeedEnabled = wasSpeedOn
+        if callback then callback() end
     end)
 end
 
--- الفارم التلقائي
-task.spawn(function()
-    while task.wait(Config.Farm.StealDelay) do
-        if Config.Farm.AutoSteal then
-            local eggs = GetEggs()
-            if #eggs > 0 then StealEgg(eggs[1]) end
-        end
-    end
-end)
-
-task.spawn(function()
-    while task.wait(1) do
-        if Config.Farm.AutoHatch then
-            for _, v in pairs(Workspace:GetDescendants()) do
-                if v:IsA("ProximityPrompt") and string.lower(v.ActionText):find("hatch") then
-                    pcall(function() fireproximityprompt(v) end)
-                end
-            end
-        end
-    end
-end)
-
--- الحركة
+-- 3. السرعة (BodyVelocity + Anti-Kick)
+local speedBodyVel = nil
 RunService.RenderStepped:Connect(function()
-    if Config.Movement.SpeedEnabled then
-        local _, hum = GetChar()
-        if hum and hum.WalkSpeed ~= Config.Movement.WalkSpeed then
-            hum.WalkSpeed = Config.Movement.WalkSpeed
-        end
+    local char, hum, hrp = getChar()
+    if not hum or not hrp then 
+        if speedBodyVel then speedBodyVel:Destroy() speedBodyVel = nil end
+        return 
     end
-end)
 
-local FlyBV, FlyBG
-RunService.RenderStepped:Connect(function()
-    local _, hum, hrp = GetChar()
-    if not hum or not hrp then
-        if FlyBV then FlyBV:Destroy() FlyBV = nil end
-        if FlyBG then FlyBG:Destroy() FlyBG = nil end
-        return
-    end
-    if Config.Movement.FlyEnabled then
-        if not FlyBV then
-            FlyBV = Instance.new("BodyVelocity", hrp)
-            FlyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-            FlyBG = Instance.new("BodyGyro", hrp)
-            FlyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-            FlyBG.P = 1000
+    if Config.SpeedEnabled then
+        hum.WalkSpeed = 16 -- اللعبة تشوفك 16
+        
+        if not speedBodyVel or speedBodyVel.Parent ~= hrp then
+            if speedBodyVel then speedBodyVel:Destroy() end
+            speedBodyVel = Instance.new("BodyVelocity")
+            speedBodyVel.Parent = hrp
+            speedBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            speedBodyVel.Velocity = Vector3.zero
         end
-        local dir = hum.MoveDirection
-        local vert = 0
-        if UIS:IsKeyDown(Enum.KeyCode.Space) then vert = Config.Movement.FlySpeed end
-        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then vert = -Config.Movement.FlySpeed end
-        FlyBV.Velocity = dir * Config.Movement.FlySpeed + Vector3.new(0, vert, 0)
-        FlyBG.CFrame = Workspace.CurrentCamera.CFrame
+        
+        local moveDir = hum.MoveDirection
+        if moveDir.Magnitude > 0 then
+            speedBodyVel.Velocity = moveDir * Config.SpeedValue
+        else
+            speedBodyVel.Velocity = Vector3.zero
+        end
     else
-        if FlyBV then FlyBV:Destroy() FlyBV = nil end
-        if FlyBG then FlyBG:Destroy() FlyBG = nil end
-    end
-end)
-
-RunService.Stepped:Connect(function()
-    if Config.Movement.Noclip then
-        local char = LP.Character
-        if char then
-            for _, part in pairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = false end
-            end
+        if speedBodyVel then
+            speedBodyVel:Destroy()
+            speedBodyVel = nil
         end
     end
 end)
 
-UIS.JumpRequest:Connect(function()
-    if Config.Movement.InfiniteJump then
-        local _, hum = GetChar()
-        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
-    end
-end)
-
--- ESP
-RunService.RenderStepped:Connect(function()
-    for _, v in pairs(Workspace:GetDescendants()) do
-        if v.Name == "DerekESP" then v:Destroy() end
-    end
-    if Config.Visual.ESP_Eggs then
-        for _, egg in ipairs(GetEggs()) do
-            local box = Instance.new("BoxHandleAdornment")
-            box.Name = "DerekESP"
-            box.Adornee = egg.model
-            box.AlwaysOnTop = true
-            box.Size = egg.model:GetExtentsSize()
-            box.Color3 = Color3.fromRGB(0, 255, 100)
-            box.Transparency = 0.5
-            box.Parent = egg.model
-        end
-    end
-end)
-
-LP.Idled:Connect(function()
-    if Config.Misc.AntiAFK then
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new())
-    end
-end)
-
---=========================================================
--- [ UI ]
---=========================================================
+-- ==========================================
+-- ============ واجهة المستخدم ============
+-- ==========================================
 local function mk(cls, props, parent)
     local o = Instance.new(cls)
     for k,v in pairs(props or {}) do o[k] = v end
@@ -191,183 +185,222 @@ local function mk(cls, props, parent)
     return o
 end
 
-local Theme = {
-    BG = Color3.fromRGB(12, 12, 18), Card = Color3.fromRGB(22, 22, 32),
-    Accent = Color3.fromRGB(230, 30, 60), Accent2 = Color3.fromRGB(50, 150, 255),
-    Text = Color3.fromRGB(245, 245, 250), Sub = Color3.fromRGB(150, 150, 170),
-    Off = Color3.fromRGB(45, 45, 60), Success = Color3.fromRGB(0, 200, 100)
+local colors = {
+    bg = Color3.fromRGB(8, 8, 16),
+    card = Color3.fromRGB(16, 16, 30),
+    red = Color3.fromRGB(255, 30, 60),
+    cyan = Color3.fromRGB(0, 220, 255),
+    blue = Color3.fromRGB(50, 100, 255),
+    text = Color3.fromRGB(255, 255, 255),
+    subtext = Color3.fromRGB(150, 150, 180),
+    off = Color3.fromRGB(40, 40, 60)
 }
 
-local gui = mk("ScreenGui", { Name = "DerekHubV25", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, LP:WaitForChild("PlayerGui"))
+local uiParent = (gethui and gethui()) or game:GetService("CoreGui") or LP:WaitForChild("PlayerGui")
+local gui = mk("ScreenGui", {Name="DerekHub14", ResetOnSpawn=false, IgnoreGuiInset=true, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, uiParent)
 
--- زر الفتح
-local openBtn = mk("TextButton", {
-    Size = UDim2.fromOffset(60, 60), Position = UDim2.new(0, 20, 0.5, -30),
-    BackgroundColor3 = Theme.Accent, Text = "D", TextColor3 = Theme.Text,
-    Font = Enum.Font.GothamBlack, TextSize = 30, BorderSizePixel = 0
+local toggleBtn = mk("TextButton", {
+    Size=UDim2.fromOffset(60,60), Position=UDim2.new(0,20,0.5,-30),
+    BackgroundColor3=colors.red, Text="D", TextColor3=colors.text,
+    Font=Enum.Font.GothamBlack, TextSize=28, BorderSizePixel=0
 }, gui)
-mk("UICorner", {CornerRadius = UDim.new(1, 0)}, openBtn)
-mk("UIStroke", {Color = Theme.Accent2, Thickness = 2}, openBtn)
+mk("UICorner",{CornerRadius=UDim.new(1,0)}, toggleBtn)
+mk("UIStroke", {Color=colors.cyan, Thickness=2}, toggleBtn)
 
 local main = mk("Frame", {
-    Size = UDim2.fromOffset(560, 420), Position = UDim2.new(0.5, -280, 0.5, -210),
-    BackgroundColor3 = Theme.BG, BorderSizePixel = 0, Visible = false
+    Size=UDim2.fromOffset(380, 500), Position=UDim2.new(0.5,-190,0.5,-250),
+    BackgroundColor3=colors.bg, BorderSizePixel=0, Visible=false
 }, gui)
-mk("UICorner", {CornerRadius = UDim.new(0, 12)}, main)
-mk("UIStroke", {Color = Theme.Accent, Thickness = 2}, main)
+mk("UICorner",{CornerRadius=UDim.new(0,16)}, main)
+local stroke = mk("UIStroke",{Color=colors.cyan, Thickness=1.5}, main)
+local grad = mk("UIGradient",{Color=ColorSequence.new{ColorSequenceKeypoint.new(0, colors.red), ColorSequenceKeypoint.new(1, colors.blue)}, Rotation=45}, stroke)
 
-local topBar = mk("Frame", { Size = UDim2.new(1, 0, 0, 55), BackgroundColor3 = Theme.Card, BorderSizePixel = 0 }, main)
-mk("UICorner", {CornerRadius = UDim.new(0, 12)}, topBar)
-mk("Frame", { Size = UDim2.new(1, 0, 0, 28), Position = UDim2.new(0, 0, 1, -28), BackgroundColor3 = Theme.Card }, topBar)
+local title = mk("Frame", {Size=UDim2.new(1,0,0,50), BackgroundColor3=colors.card, BorderSizePixel=0}, main)
+mk("UICorner",{CornerRadius=UDim.new(0,16)}, title)
+mk("Frame", {Size=UDim2.new(1,0,0,20), Position=UDim2.new(0,0,1,-20), BackgroundColor3=colors.card, BorderSizePixel=0}, title)
+mk("TextLabel", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="Derek Hub | God Mode", Font=Enum.Font.GothamBold, TextSize=16, TextColor3=colors.text}, title)
 
-mk("TextLabel", { Size = UDim2.new(0, 250, 0, 30), Position = UDim2.fromOffset(20, 8), BackgroundTransparency = 1, Text = "DEREK", TextColor3 = Theme.Text, Font = Enum.Font.GothamBlack, TextSize = 28, TextXAlignment = Enum.TextXAlignment.Left }, topBar)
-mk("TextLabel", { Size = UDim2.new(0, 250, 0, 18), Position = UDim2.fromOffset(20, 32), BackgroundTransparency = 1, Text = "v25.1", TextColor3 = Theme.Accent2, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left }, topBar)
+local closeBtn = mk("TextButton", {Size=UDim2.fromOffset(30,30), Position=UDim2.new(1,-40,0.5,-15), BackgroundColor3=colors.red, Text="✕", TextColor3=colors.text, Font=Enum.Font.GothamBold, BorderSizePixel=0}, title)
+mk("UICorner",{CornerRadius=UDim.new(0,8)}, closeBtn)
 
-local closeBtn = mk("TextButton", { Size = UDim2.fromOffset(34, 34), Position = UDim2.new(1, -46, 0.5, -17), BackgroundColor3 = Theme.Accent, Text = "✕", TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 16, BorderSizePixel = 0 }, topBar)
-mk("UICorner", {CornerRadius = UDim.new(0, 8)}, closeBtn)
+local tabBar = mk("Frame", {Size=UDim2.new(1,-24,0,35), Position=UDim2.new(0,12,0,60), BackgroundTransparency=1}, main)
+mk("UIListLayout", {FillDirection=Enum.FillDirection.Horizontal, Padding=UDim.new(0,8)}, tabBar)
 
-local tabBar = mk("Frame", { Size = UDim2.new(1, -20, 0, 35), Position = UDim2.fromOffset(10, 65), BackgroundTransparency = 1 }, main)
-mk("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8) }, tabBar)
-
-local Pages, Tabs = {}, {}
-local function CreateTab(name, isFirst)
-    local btn = mk("TextButton", { Size = UDim2.fromOffset(90, 35), BackgroundColor3 = isFirst and Theme.Accent or Theme.Card, Text = name, TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12, BorderSizePixel = 0 }, tabBar)
-    mk("UICorner", {CornerRadius = UDim.new(0, 8)}, btn)
-    local page = mk("ScrollingFrame", { Size = UDim2.new(1, -20, 1, -115), Position = UDim2.fromOffset(10, 110), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Accent2, CanvasSize = UDim2.new(0, 0, 0, 0), Visible = isFirst }, main)
-    mk("UIListLayout", { Padding = UDim.new(0, 6) }, page)
-    Tabs[name] = btn; Pages[name] = page
+local tabs, pages = {}, {}
+local function createTab(name, isFirst)
+    local btn = mk("TextButton", {Size=UDim2.new(0,165,1,0), BackgroundColor3=isFirst and colors.red or colors.card, Text=name, TextColor3=colors.text, Font=Enum.Font.GothamMedium, TextSize=13, BorderSizePixel=0}, tabBar)
+    mk("UICorner",{CornerRadius=UDim.new(0,10)}, btn)
+    
+    local page = mk("ScrollingFrame", {Size=UDim2.new(1,-24,1,-110), Position=UDim2.new(0,12,0,105), BackgroundTransparency=1, BorderSizePixel=0, ScrollBarThickness=3, ScrollBarImageColor3=colors.cyan, CanvasSize=UDim2.new(0,0,0,0), Visible=isFirst}, main)
+    mk("UIListLayout", {Padding=UDim.new(0,8), SortOrder=Enum.SortOrder.LayoutOrder}, page)
+    
+    tabs[name] = btn; pages[name] = page
     btn.MouseButton1Click:Connect(function()
-        for n, p in pairs(Pages) do p.Visible = (n == name) end
-        for n, b in pairs(Tabs) do Tween:Create(b, TweenInfo.new(0.15), { BackgroundColor3 = (n == name) and Theme.Accent or Theme.Card }):Play() end
+        for n, p in pairs(pages) do p.Visible = (n == name) end
+        for n, b in pairs(tabs) do 
+            TweenService:Create(b, TweenInfo.new(0.2), {BackgroundColor3 = (n == name) and colors.red or colors.card}):Play()
+        end
     end)
     return page
 end
 
-local FarmTab = CreateTab("Farm", true)
-local MoveTab = CreateTab("Move", false)
-local VisualTab = CreateTab("Visual", false)
-local EggTab = CreateTab("Eggs", false)
+local eggsPage = createTab("Eggs (الأقوى)", true)
+local speedPage = createTab("Speed (السرعة)", false)
 
-local function AddToggle(parent, text, default, callback, y)
-    local row = mk("Frame", { Size = UDim2.new(1, -10, 0, 42), Position = UDim2.fromOffset(5, y), BackgroundColor3 = Theme.Card }, parent)
-    mk("UICorner", {CornerRadius = UDim.new(0, 8)}, row)
-    mk("TextLabel", { Size = UDim2.new(1, -70, 1, 0), Position = UDim2.fromOffset(14, 0), BackgroundTransparency = 1, Text = text, TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }, row)
-    local sw = mk("Frame", { Size = UDim2.fromOffset(42, 22), Position = UDim2.new(1, -54, 0.5, -11), BackgroundColor3 = default and Theme.Success or Theme.Off }, row)
-    mk("UICorner", {CornerRadius = UDim.new(1, 0)}, sw)
-    local knob = mk("Frame", { Size = UDim2.fromOffset(18, 18), Position = UDim2.new(0, default and 21 or 2, 0.5, -9), BackgroundColor3 = Theme.Text }, sw)
-    mk("UICorner", {CornerRadius = UDim.new(1, 0)}, knob)
-    local state = default
-    local click = mk("TextButton", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "" }, row)
-    click.MouseButton1Click:Connect(function()
-        state = not state
-        Tween:Create(sw, TweenInfo.new(0.15), { BackgroundColor3 = state and Theme.Success or Theme.Off }):Play()
-        Tween:Create(knob, TweenInfo.new(0.15), { Position = UDim2.new(0, state and 21 or 2, 0.5, -9) }):Play()
-        if callback then pcall(callback, state) end
-    end)
-end
-
-local function AddSlider(parent, text, minV, maxV, default, callback, y)
-    local row = mk("Frame", { Size = UDim2.new(1, -10, 0, 58), Position = UDim2.fromOffset(5, y), BackgroundColor3 = Theme.Card }, parent)
-    mk("UICorner", {CornerRadius = UDim.new(0, 8)}, row)
-    local lbl = mk("TextLabel", { Size = UDim2.new(1, -20, 0, 20), Position = UDim2.fromOffset(14, 6), BackgroundTransparency = 1, Text = text..": "..default, TextColor3 = Theme.Text, Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left }, row)
-    local track = mk("Frame", { Size = UDim2.new(1, -28, 0, 8), Position = UDim2.fromOffset(14, 38), BackgroundColor3 = Theme.Off }, row)
-    mk("UICorner", {CornerRadius = UDim.new(1, 0)}, track)
-    local fill = mk("Frame", { Size = UDim2.new((default - minV) / (maxV - minV), 0, 1, 0), BackgroundColor3 = Theme.Accent2 }, track)
-    mk("UICorner", {CornerRadius = UDim.new(1, 0)}, fill)
-    local drag = false
-    local function update(x)
-        local rel = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-        local val = math.floor(minV + (maxV - minV) * rel)
-        fill.Size = UDim2.new(rel, 0, 1, 0)
-        lbl.Text = text..": "..val
-        if callback then pcall(callback, val) end
-    end
-    track.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then drag = true; update(i.Position.X) end end)
-    UIS.InputChanged:Connect(function(i) if drag and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then update(i.Position.X) end end)
-    UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end end)
-end
-
-AddToggle(FarmTab, "Auto Steal (Best Egg)", false, function(v) Config.Farm.AutoSteal = v end, 5)
-AddToggle(FarmTab, "Safe Steal Mode", true, function(v) Config.Farm.SafeMode = v end, 52)
-AddToggle(FarmTab, "Auto Hatch", false, function(v) Config.Farm.AutoHatch = v end, 99)
-AddSlider(FarmTab, "Steal Delay", 1, 20, 4, function(v) Config.Farm.StealDelay = v / 10 end, 146)
-
-AddToggle(MoveTab, "Enable Speed", false, function(v) Config.Movement.SpeedEnabled = v end, 5)
-AddSlider(MoveTab, "Walk Speed", 16, 500, 16, function(v) Config.Movement.WalkSpeed = v end, 52)
-AddToggle(MoveTab, "Enable Fly", false, function(v) Config.Movement.FlyEnabled = v end, 119)
-AddSlider(MoveTab, "Fly Speed", 20, 300, 60, function(v) Config.Movement.FlySpeed = v end, 166)
-AddToggle(MoveTab, "Noclip", false, function(v) Config.Movement.Noclip = v end, 233)
-AddToggle(MoveTab, "Infinite Jump", false, function(v) Config.Movement.InfiniteJump = v end, 280)
-
-AddToggle(VisualTab, "ESP Eggs", false, function(v) Config.Visual.ESP_Eggs = v end, 5)
-AddToggle(VisualTab, "Fullbright", false, function(v)
-    Config.Visual.Fullbright = v
-    if v then Lighting.Ambient = Color3.fromRGB(255, 255, 255); Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255); Lighting.Brightness = 3
-    else Lighting.Ambient = Color3.fromRGB(70, 70, 70); Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128); Lighting.Brightness = 2 end
-end, 52)
-AddToggle(VisualTab, "Anti-AFK", true, function(v) Config.Misc.AntiAFK = v end, 99)
-
+-- ===== تبويب البيض =====
+local eggElements = {}
 task.spawn(function()
     while task.wait(1.5) do
-        if not Pages["Eggs"].Visible then continue end
-        for _, v in pairs(EggTab:GetChildren()) do if v:IsA("Frame") then v:Destroy() end end
-        local eggs = GetEggs()
-        for i, egg in ipairs(eggs) do
-            local row = mk("Frame", { Size = UDim2.new(1, -5, 0, 48), BackgroundColor3 = Theme.Card }, EggTab)
-            mk("UICorner", {CornerRadius = UDim.new(0, 8)}, row)
-            mk("TextLabel", { Size = UDim2.new(0.65, 0, 0, 22), Position = UDim2.fromOffset(10, 4), BackgroundTransparency = 1, Text = "#"..i.." "..egg.name, TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, row)
-            mk("TextLabel", { Size = UDim2.new(0.65, 0, 0, 18), Position = UDim2.fromOffset(10, 26), BackgroundTransparency = 1, Text = "Score: "..egg.score.." | "..egg.dist.."m", TextColor3 = Theme.Accent2, Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left }, row)
-            local b = mk("TextButton", { Size = UDim2.fromOffset(70, 30), Position = UDim2.new(1, -80, 0.5, -15), BackgroundColor3 = Theme.Success, Text = "Steal", TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 12 }, row)
-            mk("UICorner", {CornerRadius = UDim.new(0, 6)}, b)
-            b.MouseButton1Click:Connect(function()
-                b.Text = "..."; b.BackgroundColor3 = Theme.Off
-                StealEgg(egg, function()
-                    b.Text = "✓"; b.BackgroundColor3 = Theme.Success
-                    task.wait(1)
-                    if b.Parent then b.Text = "Steal"; b.BackgroundColor3 = Theme.Success end
+        if not pages["Eggs (الأقوى)"].Visible then continue end
+        
+        for _, el in pairs(eggElements) do el:Destroy() end
+        eggElements = {}
+        
+        local eggs = getEggsList()
+        
+        if #eggs == 0 then
+            local empty = mk("TextLabel", {Size=UDim2.new(1,-8,0,40), BackgroundTransparency=1, Text="لا توجد بيضات للسرقة حالياً", TextColor3=colors.subtext, Font=Enum.Font.GothamMedium, TextSize=14}, pages["Eggs (الأقوى)"])
+            table.insert(eggElements, empty)
+        else
+            for i, egg in ipairs(eggs) do
+                local row = mk("Frame", {Size=UDim2.new(1,-8,0,70), BackgroundColor3=colors.card}, pages["Eggs (الأقوى)"])
+                mk("UICorner",{CornerRadius=UDim.new(0,10)}, row)
+                mk("UIStroke",{Color=colors.blue, Thickness=1, Transparency=0.5}, row)
+                
+                local img = mk("ImageLabel", {Size=UDim2.fromOffset(50,50), Position=UDim2.new(0,10,0.5,-25), BackgroundColor3=colors.bg, Image=egg.image, ScaleType=Enum.ScaleType.Crop}, row)
+                mk("UICorner",{CornerRadius=UDim.new(0,8)}, img)
+                mk("UIStroke",{Color=colors.cyan, Thickness=1.5}, img)
+                
+                local rankText = "#"..i.." | "..egg.name
+                mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,12), BackgroundTransparency=1, Text=rankText, TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, TextXAlignment=Enum.TextXAlignment.Left, TextTruncate=Enum.TextTruncate.AtEnd}, row)
+                
+                -- عرض القيمة المنسقة
+                local formattedScore = formatValue(egg.score)
+                mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,36), BackgroundTransparency=1, Text="Value: $"..formattedScore.." | Dist: "..egg.dist, TextColor3=colors.cyan, Font=Enum.Font.GothamMedium, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, row)
+                
+                local btn = mk("TextButton", {Size=UDim2.fromOffset(70,36), Position=UDim2.new(1,-80,0.5,-18), BackgroundColor3=colors.blue, Text="Steal", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, BorderSizePixel=0}, row)
+                mk("UICorner",{CornerRadius=UDim.new(0,8)}, btn)
+                
+                btn.MouseButton1Click:Connect(function()
+                    btn.Text = "Wait..."
+                    btn.BackgroundColor3 = colors.red
+                    stealEgg(egg, function()
+                        if btn and btn.Parent then
+                            btn.Text = "Done ✓"
+                            task.wait(1)
+                            if btn and btn.Parent then
+                                btn.Text = "Steal"
+                                btn.BackgroundColor3 = colors.blue
+                            end
+                        end
+                    end)
                 end)
-            end)
+                
+                table.insert(eggElements, row)
+            end
         end
-        EggTab.CanvasSize = UDim2.new(0, 0, 0, #eggs * 54)
+        pages["Eggs (الأقوى)"].CanvasSize = UDim2.new(0,0,0, #eggElements * 78)
     end
 end)
 
--- نظام السحب المحسن للزر
-local function MakeDrag(frame, handle)
-    local dragging, dragStart, startPos, moved
-    handle.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true; dragStart = i.Position; startPos = frame.Position; moved = false
-        end
-    end)
-    UIS.InputChanged:Connect(function(i)
-        if dragging and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
-            local d = i.Position - dragStart
-            if d.Magnitude > 5 then moved = true end
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-        end
-    end)
-    UIS.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-    return function() return moved end
+-- ===== تبويب السرعة =====
+local speedRow = mk("Frame", {Size=UDim2.new(1,-8,0,60), BackgroundColor3=colors.card}, pages["Speed (السرعة)"])
+mk("UICorner",{CornerRadius=UDim.new(0,10)}, speedRow)
+mk("UIStroke",{Color=colors.blue, Thickness=1, Transparency=0.5}, speedRow)
+
+local speedLabel = mk("TextLabel", {Size=UDim2.new(1,-20,0,20), Position=UDim2.new(0,12,0,10), BackgroundTransparency=1, Text="Speed: 16", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=14, TextXAlignment=Enum.TextXAlignment.Left}, speedRow)
+
+local speedToggle = mk("TextButton", {Size=UDim2.fromOffset(80,30), Position=UDim2.new(1,-92,0,8), BackgroundColor3=colors.off, Text="OFF", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, BorderSizePixel=0}, speedRow)
+mk("UICorner",{CornerRadius=UDim.new(0,8)}, speedToggle)
+
+local sliderBG = mk("Frame", {Size=UDim2.new(1,-24,0,8), Position=UDim2.new(0,12,0,42), BackgroundColor3=colors.off, BorderSizePixel=0}, speedRow)
+mk("UICorner",{CornerRadius=UDim.new(1,0)}, sliderBG)
+local sliderFill = mk("Frame", {Size=UDim2.new(0,0,1,0), BackgroundColor3=colors.cyan, BorderSizePixel=0}, sliderBG)
+mk("UICorner",{CornerRadius=UDim.new(1,0)}, sliderFill)
+local sliderKnob = mk("Frame", {Size=UDim2.fromOffset(18,18), Position=UDim2.new(0,-9,0.5,-9), BackgroundColor3=colors.text, BorderSizePixel=0}, sliderBG)
+mk("UICorner",{CornerRadius=UDim.new(1,0)}, sliderKnob)
+
+local draggingSlider = false
+local function updateSlider(x)
+    local rel = math.clamp((x - sliderBG.AbsolutePosition.X) / sliderBG.AbsoluteSize.X, 0, 1)
+    local val = math.floor(1 + (450 - 1) * rel) -- الحد الأقصى 450
+    sliderFill.Size = UDim2.new(rel, 0, 1, 0)
+    sliderKnob.Position = UDim2.new(rel, -9, 0.5, -9)
+    speedLabel.Text = "Speed: " .. val
+    Config.SpeedValue = val
 end
 
-MakeDrag(main, topBar)
-local isBtnMoved = MakeDrag(openBtn, openBtn)
+sliderBG.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSlider = true
+        updateSlider(input.Position.X)
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if draggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        updateSlider(input.Position.X)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSlider = false
+    end
+end)
 
+speedToggle.MouseButton1Click:Connect(function()
+    Config.SpeedEnabled = not Config.SpeedEnabled
+    if Config.SpeedEnabled then
+        speedToggle.Text = "ON"
+        speedToggle.BackgroundColor3 = colors.red
+    else
+        speedToggle.Text = "OFF"
+        speedToggle.BackgroundColor3 = colors.off
+        local _, hum = getChar()
+        if hum then hum.WalkSpeed = 16 end
+    end
+end)
+
+-- فتح/قفل
 local isOpen = false
-openBtn.MouseButton1Click:Connect(function()
-    if isBtnMoved() then return end -- إذا كان يسحب، ما يفتح
+toggleBtn.MouseButton1Click:Connect(function()
     isOpen = not isOpen
     main.Visible = isOpen
 end)
-
 closeBtn.MouseButton1Click:Connect(function()
     isOpen = false
     main.Visible = false
 end)
 
-Log("Derek Hub v25.1 loaded.", "SYSTEM")
+-- سحب اللوحة
+local drag1, start1, pos1
+title.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+        drag1 = true; start1 = i.Position; pos1 = main.Position
+    end
+end)
+UIS.InputChanged:Connect(function(i)
+    if drag1 and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+        local d = i.Position - start1
+        main.Position = UDim2.new(pos1.X.Scale, pos1.X.Offset + d.X, pos1.Y.Scale, pos1.Y.Offset + d.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then drag1 = false end
+end)
+
+-- سحب الزر
+local drag2, start2, pos2
+toggleBtn.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+        drag2 = true; start2 = i.Position; pos2 = toggleBtn.Position
+    end
+end)
+UIS.InputChanged:Connect(function(i)
+    if drag2 and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+        local d = i.Position - start2
+        toggleBtn.Position = UDim2.new(pos2.X.Scale, pos2.X.Offset + d.X, pos2.Y.Scale, pos2.Y.Offset + d.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then drag2 = false end
+end)
