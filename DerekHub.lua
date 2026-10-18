@@ -1,4 +1,4 @@
---[[ Derek Hub v13.0 — Cyberpunk Edition | Steal An Egg | Author: ALPHA ]]
+--[[ Derek Hub v14.0 — Ghost Protocol | Steal An Egg | Author: ALPHA ]]
 task.wait(1)
 
 local Players = game:GetService("Players")
@@ -19,35 +19,36 @@ local function getChar()
     return c, c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart")
 end
 
--- جلب صورة الحيوان/البيضة بذكاء
+-- جلب الصورة (بحث عميق)
 local function getModelImage(model)
-    -- البحث داخل الواجهات العائمة للعبة
     for _, v in ipairs(model:GetDescendants()) do
+        if v:IsA("BillboardGui") then
+            local img = v:FindFirstChildWhichIsA("ImageLabel", true)
+            if img and img.Image ~= "" then return img.Image end
+        end
         if v:IsA("ImageLabel") and v.Image ~= "" then return v.Image end
         if v:IsA("Decal") and v.Texture ~= "" then return v.Texture end
         if v:IsA("Texture") and v.Texture ~= "" then return v.Texture end
         if v:IsA("MeshPart") and v.TextureID ~= "" then return v.TextureID end
     end
-    return "rbxassetid://13828748735" -- صورة افتراضية
+    return "rbxassetid://13495565986" -- صورة بيضة ذهبية افتراضية
 end
 
--- تحديد القوة والسعر
+-- القوة والترتيب
 local function getEggScore(model, name)
-    -- 1. محاولة قراءة القيمة الحقيقية من اللعبة
     local valObj = model:FindFirstChild("Value") or model:FindFirstChild("Price") or model:FindFirstChildWhichIsA("NumberValue") or model:FindFirstChildWhichIsA("IntValue")
     if valObj then return valObj.Value end
     
-    -- 2. إذا ما لقينا قيمة، نعتمد على الاسم
     local n = string.lower(name)
     if n:find("mythic") or n:find("secret") or n:find("god") then return 1000000 end
     if n:find("legendary") or n:find("divine") then return 500000 end
     if n:find("epic") then return 100000 end
     if n:find("rare") then return 50000 end
     if n:find("uncommon") then return 10000 end
-    return 1000 -- Common
+    return 1000
 end
 
--- جلب القائمة وترتيبها من الأقوى للأضعف
+-- جلب القائمة
 local function getEggsList()
     local eggs = {}
     local _, _, hrp = getChar()
@@ -60,58 +61,82 @@ local function getEggsList()
             local name = prompt.ObjectText
             if not name or name == "" then name = model.Name end
             
-            local score = getEggScore(model, name)
-            
             table.insert(eggs, {
                 model = model,
                 prompt = prompt,
                 pos = pos,
                 name = name,
                 dist = math.floor((pos - hrp.Position).Magnitude),
-                score = score,
+                score = getEggScore(model, name),
                 image = getModelImage(model)
             })
         end
     end
-    -- ترتيب تنازلي (الأقوى أولاً)
-    table.sort(eggs, function(a, b)
-        return a.score > b.score
-    end)
+    table.sort(eggs, function(a, b) return a.score > b.score end)
     return eggs
 end
 
--- السرقة الفورية
+-- السرقة (مع الانتظار للسيرفر)
 local function stealEgg(egg, callback)
     local _, hum, hrp = getChar()
     if not hum or not hrp or not egg.model.Parent then return end
     
     local originalCF = hrp.CFrame
-    local currentSpeed = hum.WalkSpeed
     
-    -- إخفاء السرعة العالية لحظة السرقة (حماية)
+    -- إيقاف السرعة العالية أثناء السرقة
+    local wasSpeedOn = Config.SpeedEnabled
+    Config.SpeedEnabled = false
     hum.WalkSpeed = 16
     
     task.spawn(function()
         pcall(function()
-            hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 2.5, 0))
-            task.wait(0.15)
+            -- الانتقال للبيضة
+            hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 3, 0))
+            -- انتظار السيرفر يتقبل الموقع
+            task.wait(0.4)
+            -- السرقة
             fireproximityprompt(egg.prompt)
-            task.wait(0.15)
+            -- انتظار السيرفر يسجل السرقة
+            task.wait(0.4)
+            -- الرجوع
+            hrp.CFrame = originalCF
         end)
-        pcall(function() hrp.CFrame = originalCF end)
-        
         -- إرجاع السرعة
-        if Config.SpeedEnabled and hum then hum.WalkSpeed = Config.SpeedValue else hum.WalkSpeed = currentSpeed end
+        Config.SpeedEnabled = wasSpeedOn
         if callback then callback() end
     end)
 end
 
--- فرض السرعة (حل مشكلة اللعبة اللي ترجع السرعة)
+-- السرعة الفيزيائية (تجاوز الحماية)
+local speedBodyVel = nil
 RunService.RenderStepped:Connect(function()
+    local char, hum, hrp = getChar()
+    if not hum or not hrp then 
+        if speedBodyVel then speedBodyVel:Destroy() speedBodyVel = nil end
+        return 
+    end
+
     if Config.SpeedEnabled then
-        local _, hum = getChar()
-        if hum and hum.WalkSpeed ~= Config.SpeedValue then
-            hum.WalkSpeed = Config.SpeedValue
+        hum.WalkSpeed = 16 -- نخلي سرعة المشي طبيعية عشان ما ينكشف
+        
+        if not speedBodyVel or speedBodyVel.Parent ~= hrp then
+            if speedBodyVel then speedBodyVel:Destroy() end
+            speedBodyVel = Instance.new("BodyVelocity")
+            speedBodyVel.Parent = hrp
+            speedBodyVel.MaxForce = Vector3.new(1e5, 0, 1e5)
+            speedBodyVel.Velocity = Vector3.zero
+        end
+        
+        local moveDir = hum.MoveDirection
+        if moveDir.Magnitude > 0 then
+            speedBodyVel.Velocity = moveDir * Config.SpeedValue
+        else
+            speedBodyVel.Velocity = Vector3.zero
+        end
+    else
+        if speedBodyVel then
+            speedBodyVel:Destroy()
+            speedBodyVel = nil
         end
     end
 end)
@@ -126,7 +151,7 @@ local function mk(cls, props, parent)
     return o
 end
 
--- الألوان الجديدة (أحمر + أزرق + سماوي)
+-- الألوان (أحمر + أزرق + سماوي)
 local colors = {
     bg = Color3.fromRGB(8, 8, 16),
     card = Color3.fromRGB(16, 16, 30),
@@ -139,7 +164,7 @@ local colors = {
 }
 
 local uiParent = (gethui and gethui()) or game:GetService("CoreGui") or LP:WaitForChild("PlayerGui")
-local gui = mk("ScreenGui", {Name="DerekHub13", ResetOnSpawn=false, IgnoreGuiInset=true, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, uiParent)
+local gui = mk("ScreenGui", {Name="DerekHub14", ResetOnSpawn=false, IgnoreGuiInset=true, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, uiParent)
 
 -- زر الفتح
 local toggleBtn = mk("TextButton", {
@@ -150,7 +175,7 @@ local toggleBtn = mk("TextButton", {
 mk("UICorner",{CornerRadius=UDim.new(1,0)}, toggleBtn)
 mk("UIStroke", {Color=colors.cyan, Thickness=2}, toggleBtn)
 
--- اللوحة الرئيسية
+-- اللوحة
 local main = mk("Frame", {
     Size=UDim2.fromOffset(380, 500), Position=UDim2.new(0.5,-190,0.5,-250),
     BackgroundColor3=colors.bg, BorderSizePixel=0, Visible=false
@@ -163,7 +188,7 @@ local grad = mk("UIGradient",{Color=ColorSequence.new{ColorSequenceKeypoint.new(
 local title = mk("Frame", {Size=UDim2.new(1,0,0,50), BackgroundColor3=colors.card, BorderSizePixel=0}, main)
 mk("UICorner",{CornerRadius=UDim.new(0,16)}, title)
 mk("Frame", {Size=UDim2.new(1,0,0,20), Position=UDim2.new(0,0,1,-20), BackgroundColor3=colors.card, BorderSizePixel=0}, title)
-mk("TextLabel", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="Derek Hub | Cyberpunk", Font=Enum.Font.GothamBold, TextSize=16, TextColor3=colors.text}, title)
+mk("TextLabel", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="Derek Hub | Ghost", Font=Enum.Font.GothamBold, TextSize=16, TextColor3=colors.text}, title)
 
 local closeBtn = mk("TextButton", {Size=UDim2.fromOffset(30,30), Position=UDim2.new(1,-40,0.5,-15), BackgroundColor3=colors.red, Text="✕", TextColor3=colors.text, Font=Enum.Font.GothamBold, BorderSizePixel=0}, title)
 mk("UICorner",{CornerRadius=UDim.new(0,8)}, closeBtn)
@@ -213,22 +238,19 @@ task.spawn(function()
                 mk("UICorner",{CornerRadius=UDim.new(0,10)}, row)
                 mk("UIStroke",{Color=colors.blue, Thickness=1, Transparency=0.5}, row)
                 
-                -- صورة
                 local img = mk("ImageLabel", {Size=UDim2.fromOffset(50,50), Position=UDim2.new(0,10,0.5,-25), BackgroundColor3=colors.bg, Image=egg.image, ScaleType=Enum.ScaleType.Crop}, row)
                 mk("UICorner",{CornerRadius=UDim.new(0,8)}, img)
                 mk("UIStroke",{Color=colors.cyan, Thickness=1.5}, img)
                 
-                -- الاسم والترتيب
                 local rankText = "#"..i.." | "..egg.name
                 mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,12), BackgroundTransparency=1, Text=rankText, TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, TextXAlignment=Enum.TextXAlignment.Left, TextTruncate=Enum.TextTruncate.AtEnd}, row)
                 mk("TextLabel", {Size=UDim2.new(0.6,0,0,20), Position=UDim2.new(0,68,0,36), BackgroundTransparency=1, Text="Dist: "..egg.dist.." | Score: "..egg.score, TextColor3=colors.cyan, Font=Enum.Font.GothamMedium, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, row)
                 
-                -- زر Steal
                 local btn = mk("TextButton", {Size=UDim2.fromOffset(70,36), Position=UDim2.new(1,-80,0.5,-18), BackgroundColor3=colors.blue, Text="Steal", TextColor3=colors.text, Font=Enum.Font.GothamBold, TextSize=13, BorderSizePixel=0}, row)
                 mk("UICorner",{CornerRadius=UDim.new(0,8)}, btn)
                 
                 btn.MouseButton1Click:Connect(function()
-                    btn.Text = "Grabbing..."
+                    btn.Text = "Wait..."
                     btn.BackgroundColor3 = colors.red
                     stealEgg(egg, function()
                         if btn and btn.Parent then
