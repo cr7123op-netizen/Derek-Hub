@@ -1,5 +1,5 @@
---[[ Derek Hub v16.0 — Derek Edition | Steal An Egg | Author: ALPHA ]]
-task.wait(1)
+--[[ Derek Hub v17.0 — Safe Edition | Steal An Egg | Author: ALPHA ]]
+task.wait(2)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -10,14 +10,10 @@ local LP = Players.LocalPlayer
 
 local Config = {
     AutoSteal = false,
-    AutoHatch = false,
     SpeedEnabled = false,
     SpeedValue = 16,
 }
 
--- ==========================================
--- ============ دوال مساعدة =============
--- ==========================================
 local function getChar()
     local c = LP.Character
     return c, c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart")
@@ -28,7 +24,6 @@ local function getImage(model)
         if v:IsA("Decal") and v.Texture ~= "" then return v.Texture end
         if v:IsA("Texture") and v.Texture ~= "" then return v.Texture end
         if v:IsA("MeshPart") and v.TextureID ~= "" then return v.TextureID end
-        if v:IsA("ImageLabel") and v.Image ~= "" then return v.Image end
     end
     return "rbxassetid://13495565986"
 end
@@ -61,14 +56,13 @@ local function getEggs()
     return eggs
 end
 
--- السرقة الآمنة (بدون VirtualUser عشان ما ينطرد)
 local function stealEgg(egg, btn)
     local _, hum, hrp = getChar()
     if not hum or not hrp or not egg.model.Parent then return end
     
     local originalCF = hrp.CFrame
     local wasSpeedOn = Config.SpeedEnabled
-    Config.SpeedEnabled = false -- إيقاف السرعة أثناء السرقة
+    Config.SpeedEnabled = false
     hum.WalkSpeed = 16
     
     if btn then
@@ -79,12 +73,11 @@ local function stealEgg(egg, btn)
     task.spawn(function()
         pcall(function()
             hrp.CFrame = CFrame.new(egg.pos + Vector3.new(0, 3, 0))
-            task.wait(0.3) -- انتظار السيرفر
+            task.wait(0.3)
             fireproximityprompt(egg.prompt)
-            task.wait(0.3) -- انتظار تأكيد السرقة
+            task.wait(0.3)
             hrp.CFrame = originalCF
         end)
-        
         Config.SpeedEnabled = wasSpeedOn
         
         if btn and btn.Parent then
@@ -98,9 +91,6 @@ local function stealEgg(egg, btn)
     end)
 end
 
--- ==========================================
--- ============ تصميم الواجهة ============
--- ==========================================
 local function mk(cls, props, parent)
     local o = Instance.new(cls)
     for k,v in pairs(props or {}) do o[k] = v end
@@ -117,16 +107,11 @@ local clr = {
     off = Color3.fromRGB(40, 20, 25)
 }
 
--- الحماية المتخفية للواجهة
-local uiParent
-pcall(function()
-    uiParent = gethui and gethui() or game:GetService("CoreGui")
-end)
-if not uiParent then uiParent = LP:WaitForChild("PlayerGui") end
-
+-- الحماية: نستخدم PlayerGui العادي عشان ما ينطرد
+local uiParent = LP:WaitForChild("PlayerGui")
 local gui = mk("ScreenGui", {Name="DerekHub", ResetOnSpawn=false, IgnoreGuiInset=true, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, uiParent)
 
--- زر الفتح (حرف D)
+-- زر الفتح (D)
 local toggleBtn = mk("TextButton", {
     Size=UDim2.fromOffset(60,60), Position=UDim2.new(0,20,0.5,-30),
     BackgroundColor3=clr.accent, Text="D", TextColor3=clr.text,
@@ -135,22 +120,21 @@ local toggleBtn = mk("TextButton", {
 mk("UICorner",{CornerRadius=UDim.new(1,0)}, toggleBtn)
 mk("UIStroke", {Color=clr.text, Thickness=2, Transparency=0.3}, toggleBtn)
 
--- النافذة الرئيسية
+-- النافذة
 local main = mk("Frame", {
     Size=UDim2.fromOffset(620, 420), Position=UDim2.new(0.5,-310,0.5,-210),
     BackgroundColor3=clr.bg, BorderSizePixel=0, Visible=false
 }, gui)
 mk("UICorner",{CornerRadius=UDim.new(0,10)}, main)
 local stroke = mk("UIStroke",{Color=clr.accent, Thickness=1.5, Transparency=0.2}, main)
-local grad = mk("UIGradient",{Color=ColorSequence.new{ColorSequenceKeypoint.new(0, clr.accent), ColorSequenceKeypoint.new(1, Color3.fromRGB(100,0,20))}, Rotation=90}, stroke)
 
--- شريط العنوان العلوي
+-- شريط العنوان
 local topBar = mk("Frame", {Size=UDim2.new(1,0,0,40), BackgroundColor3=clr.panel, BorderSizePixel=0}, main)
 mk("UICorner",{CornerRadius=UDim.new(0,10)}, topBar)
 mk("Frame", {Size=UDim2.new(1,0,0,15), Position=UDim2.new(0,0,1,-15), BackgroundColor3=clr.panel, BorderSizePixel=0}, topBar)
 
 mk("TextLabel", {Size=UDim2.new(0,100,1,0), Position=UDim2.new(0,15,0,0), BackgroundTransparency=1, Text="Derek", TextColor3=clr.accent, Font=Enum.Font.GothamBlack, TextSize=16, TextXAlignment=Enum.TextXAlignment.Left}, topBar)
-mk("TextLabel", {Size=UDim2.new(0,100,1,0), Position=UDim2.new(0,100,0,0), BackgroundTransparency=1, Text="V: 16.0", TextColor3=clr.subtext, Font=Enum.Font.Gotham, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, topBar)
+mk("TextLabel", {Size=UDim2.new(0,100,1,0), Position=UDim2.new(0,100,0,0), BackgroundTransparency=1, Text="V: 17.0", TextColor3=clr.subtext, Font=Enum.Font.Gotham, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left}, topBar)
 
 local closeBtn = mk("TextButton", {Size=UDim2.fromOffset(30,30), Position=UDim2.new(1,-35,0.5,-15), BackgroundColor3=clr.off, Text="✕", TextColor3=clr.text, Font=Enum.Font.GothamBold, BorderSizePixel=0}, topBar)
 mk("UICorner",{CornerRadius=UDim.new(0,6)}, closeBtn)
@@ -183,7 +167,6 @@ end
 local mainPage = createSideTab("Main", "🏠", true)
 local autoPage = createSideTab("Automation", "⚙️", false)
 
--- صفحة Main
 local leftPanel = mk("Frame", {Size=UDim2.new(0.5, -5, 1, 0), Position=UDim2.new(0, 0, 0, 0), BackgroundColor3=clr.panel, BorderSizePixel=0}, mainPage)
 mk("UICorner",{CornerRadius=UDim.new(0,8)}, leftPanel)
 mk("TextLabel", {Size=UDim2.new(1,-20,0,30), Position=UDim2.new(0,10,0,10), BackgroundTransparency=1, Text="Steal Eggs", TextColor3=clr.text, Font=Enum.Font.GothamBold, TextSize=14, TextXAlignment=Enum.TextXAlignment.Left}, leftPanel)
@@ -213,10 +196,17 @@ local function updateEggList()
         btn.MouseButton1Click:Connect(function() stealEgg(egg, btn) end)
     end
 end
-task.spawn(function() while task.wait(2) do if main.Visible and pages["Main"].Visible then updateEggList() end end end)
+
+task.spawn(function() 
+    while task.wait(2) do 
+        if main.Visible and pages["Main"].Visible then 
+            pcall(updateEggList) 
+        end 
+    end 
+end)
 
 -- أزرار الدفاع
-local function addDefenseToggle(text, y, callback)
+local function addDefenseToggle(text, y)
     mk("TextLabel", {Size=UDim2.new(1,-60,0,25), Position=UDim2.new(0,10,0,y), BackgroundTransparency=1, Text=text, TextColor3=clr.text, Font=Enum.Font.Gotham, TextSize=12, TextXAlignment=Enum.TextXAlignment.Left}, rightPanel)
     local sw = mk("Frame", {Size=UDim2.fromOffset(35,18), Position=UDim2.new(1,-45,0,y+3), BackgroundColor3=clr.off}, rightPanel)
     mk("UICorner",{CornerRadius=UDim.new(1,0)}, sw)
@@ -228,15 +218,14 @@ local function addDefenseToggle(text, y, callback)
         state = not state
         TweenService:Create(sw, TweenInfo.new(0.15), {BackgroundColor3 = state and clr.accent or clr.off}):Play()
         TweenService:Create(knob, TweenInfo.new(0.15), {Position = UDim2.new(0, state and 19 or 2, 0.5, -7)}):Play()
-        if callback then callback(state) end
     end)
 end
 
-addDefenseToggle("Bat Kill Aura", 10, function(v) end)
-addDefenseToggle("Auto Equip Bat", 40, function(v) end)
-addDefenseToggle("Tool Swap", 70, function(v) end)
-addDefenseToggle("Anti-Hit", 100, function(v) end)
-addDefenseToggle("Anti-Trap", 130, function(v) end)
+addDefenseToggle("Bat Kill Aura", 10)
+addDefenseToggle("Auto Equip Bat", 40)
+addDefenseToggle("Tool Swap", 70)
+addDefenseToggle("Anti-Hit", 100)
+addDefenseToggle("Anti-Trap", 130)
 
 -- صفحة Automation
 local function addAutoToggle(parent, text, y, callback)
@@ -260,42 +249,13 @@ local function addAutoToggle(parent, text, y, callback)
 end
 
 addAutoToggle(autoPage, "Auto Steal", 10, function(v) Config.AutoSteal = v end)
-addAutoToggle(autoPage, "Auto Hatch", 55, function(v) Config.AutoHatch = v end)
 
--- ==========================================
--- ============ الوظائف الخلفية ============
--- ==========================================
--- السرعة الآمنة
-task.spawn(function()
-    while task.wait(0.1) do
-        local _, hum = getChar()
-        if hum then
-            if Config.SpeedEnabled then
-                hum.WalkSpeed = Config.SpeedValue
-            else
-                if hum.WalkSpeed > 16 then hum.WalkSpeed = 16 end
-            end
-        end
-    end
-end)
-
--- أوتو ستيل
+-- وظائف خلفية
 task.spawn(function()
     while task.wait(1) do
-        if Config.AutoSteal then
+        if Config.AutoSteal and main.Visible then
             local eggs = getEggs()
             if #eggs > 0 then stealEgg(eggs[1]) end
-        end
-    end
-end)
-
--- أوتو هاتش
-task.spawn(function()
-    while task.wait(1) do
-        if Config.AutoHatch then
-            for _, v in pairs(Workspace:GetDescendants()) do
-                if v:IsA("ProximityPrompt") and string.lower(v.ActionText):find("hatch") then pcall(function() fireproximityprompt(v) end) end
-            end
         end
     end
 end)
